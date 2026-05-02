@@ -1,0 +1,39 @@
+name: Daily Scrape & Score
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # 9am UTC = 5am ET daily
+  workflow_dispatch:      # allow manual trigger from GitHub UI
+
+jobs:
+  scrape-and-score:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install scraper dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Run scraper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JOB_KEYWORDS: ${{ secrets.JOB_KEYWORDS }}
+          JOB_LOCATION: ${{ secrets.JOB_LOCATION }}
+        run: python scraper/main.py
+
+      - name: Install scorer dependencies
+        run: pip install -r scorer/requirements.txt
+
+      - name: Run scorer
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python scorer/main.py

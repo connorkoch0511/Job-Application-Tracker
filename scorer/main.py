@@ -15,7 +15,7 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 client_groq = Groq(api_key=GROQ_API_KEY)
 
 SCORE_PROMPT = """
-You are a recruiter evaluating how well a candidate's resume matches a job listing.
+You are a career coach evaluating how well a candidate's resume matches a job listing.
 
 Resume:
 {resume}
@@ -25,22 +25,30 @@ Company: {company}
 Job Description:
 {description}
 
-Score how well this resume matches the job on a scale from 0 to 100, where:
-- 90-100: Exceptional match, candidate is highly qualified
-- 70-89: Good match, candidate meets most requirements
-- 50-69: Moderate match, candidate meets some requirements
-- 0-49: Poor match, significant gaps
+Evaluate the match across these criteria:
+- Technical skills alignment (languages, frameworks, tools)
+- Years and type of experience
+- Domain/industry fit
+- Seniority level match
+- Any must-have requirements the candidate lacks
+
+Score from 0 to 100:
+- 90-100: Exceptional match — apply immediately
+- 70-89: Strong match — worth applying with a tailored cover letter
+- 50-69: Partial match — consider applying if you can address the gaps
+- 0-49: Poor match — significant missing requirements
 
 Respond ONLY with valid JSON in this exact format:
 {{
   "score": <number 0-100>,
-  "reasoning": "<2-3 sentence explanation of the score>"
+  "why_apply": "<2-3 sentences on the strongest reasons this candidate should apply — be specific about which skills/experience align>",
+  "gaps": "<1-2 sentences on the most important missing skills or experience, or 'No significant gaps identified' if score is 80+>",
+  "reasoning": "<1 sentence overall verdict>"
 }}
 """
 
 
-def score_job(resume: str, job: dict) -> tuple[float, str]:
-    # Truncate to stay within the 6000 TPM free tier limit (~4 chars per token)
+def score_job(resume: str, job: dict) -> dict:
     resume_trunc = resume[:3000]
     description_trunc = job.get("description", "No description provided")[:3000]
 
@@ -59,7 +67,12 @@ def score_job(resume: str, job: dict) -> tuple[float, str]:
     )
 
     parsed = json.loads(response.choices[0].message.content)
-    return float(parsed["score"]), parsed["reasoning"]
+    return {
+        "score": float(parsed["score"]),
+        "score_reasoning": parsed.get("reasoning", ""),
+        "why_apply": parsed.get("why_apply", ""),
+        "gaps": parsed.get("gaps", ""),
+    }
 
 
 def run():
@@ -89,13 +102,12 @@ def run():
 
     for i, job in enumerate(jobs):
         try:
-            score, reasoning = score_job(resume_text, job)
+            result = score_job(resume_text, job)
             client.table("jobs").update({
-                "score": score,
-                "score_reasoning": reasoning,
+                **result,
                 "scored_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", job["id"]).execute()
-            print(f"  [{score:.1f}] {job['title']} @ {job['company']}")
+            print(f"  [{result['score']:.1f}] {job['title']} @ {job['company']}")
         except Exception as e:
             print(f"  Error scoring {job['title']}: {e}")
         if i < len(jobs) - 1:

@@ -14,6 +14,8 @@ export type Job = {
   url: string;
   score: number | null;
   score_reasoning: string | null;
+  why_apply: string | null;
+  gaps: string | null;
   posted_at: string | null;
   scraped_at: string;
 };
