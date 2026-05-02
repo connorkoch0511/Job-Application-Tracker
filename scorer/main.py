@@ -86,11 +86,13 @@ def run():
         .execute()
     )
 
-    # Deduplicate: keep latest resume per user
+    # Deduplicate: keep latest resume per user; skip rows without a user_id
     seen_users: set = set()
     user_resumes: list = []
     for row in resumes_result.data:
         uid = row["user_id"]
+        if not uid:
+            continue
         if uid not in seen_users:
             seen_users.add(uid)
             user_resumes.append(row)
