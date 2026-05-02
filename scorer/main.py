@@ -78,42 +78,69 @@ def score_job(resume: str, job: dict) -> dict:
 def run():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    resume_result = (
+    # Get all users who have uploaded a resume
+    resumes_result = (
         client.table("resumes")
-        .select("content")
+        .select("user_id, content, uploaded_at")
         .order("uploaded_at", desc=True)
-        .limit(1)
         .execute()
     )
-    if not resume_result.data:
-        print("No resume found. Upload one via the web UI first.")
+
+    # Deduplicate: keep latest resume per user
+    seen_users: set = set()
+    user_resumes: list = []
+    for row in resumes_result.data:
+        uid = row["user_id"]
+        if uid not in seen_users:
+            seen_users.add(uid)
+            user_resumes.append(row)
+
+    if not user_resumes:
+        print("No resumes found. Users must upload one via the web UI first.")
         return
 
-    resume_text = resume_result.data[0]["content"]
+    print(f"Found {len(user_resumes)} user(s) with resumes.")
 
-    jobs_result = (
-        client.table("jobs")
-        .select("id, title, company, description")
-        .is_("score", "null")
-        .execute()
-    )
-    jobs = jobs_result.data
-    print(f"Scoring {len(jobs)} unscored jobs...")
+    # Get all jobs
+    jobs_result = client.table("jobs").select("id, title, company, description").execute()
+    all_jobs = jobs_result.data
+    print(f"Total jobs in database: {len(all_jobs)}")
 
-    for i, job in enumerate(jobs):
-        try:
-            result = score_job(resume_text, job)
-            client.table("jobs").update({
-                **result,
-                "scored_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", job["id"]).execute()
-            print(f"  [{result['score']:.1f}] {job['title']} @ {job['company']}")
-        except Exception as e:
-            print(f"  Error scoring {job['title']}: {e}")
-        if i < len(jobs) - 1:
-            time.sleep(2)
+    for user_row in user_resumes:
+        user_id = user_row["user_id"]
+        resume_text = user_row["content"]
 
-    print("Scoring complete.")
+        # Find jobs not yet scored for this user
+        scored_result = (
+            client.table("user_job_scores")
+            .select("job_id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        scored_job_ids = {row["job_id"] for row in scored_result.data}
+        unscored = [j for j in all_jobs if j["id"] not in scored_job_ids]
+
+        print(f"\nUser {user_id}: scoring {len(unscored)} unscored jobs...")
+
+        for i, job in enumerate(unscored):
+            try:
+                result = score_job(resume_text, job)
+                client.table("user_job_scores").upsert({
+                    "user_id": user_id,
+                    "job_id": job["id"],
+                    "score": result["score"],
+                    "score_reasoning": result["score_reasoning"],
+                    "why_apply": result["why_apply"],
+                    "gaps": result["gaps"],
+                    "scored_at": datetime.now(timezone.utc).isoformat(),
+                }).execute()
+                print(f"  [{result['score']:.1f}] {job['title']} @ {job['company']}")
+            except Exception as e:
+                print(f"  Error scoring {job['title']}: {e}")
+            if i < len(unscored) - 1:
+                time.sleep(2)
+
+    print("\nScoring complete.")
 
 
 if __name__ == "__main__":
