@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 from datetime import datetime, timezone
@@ -78,20 +79,22 @@ def score_job(resume: str, job: dict) -> dict:
 def run():
     client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Get all users who have uploaded a resume
+    # Get all users who have uploaded a resume (exclude rows with no user_id)
     resumes_result = (
         client.table("resumes")
         .select("user_id, content, uploaded_at")
+        .not_.is_("user_id", "null")
         .order("uploaded_at", desc=True)
         .execute()
     )
 
-    # Deduplicate: keep latest resume per user; skip rows without a user_id
+    # Deduplicate: keep latest resume per user; guard against non-UUID values
+    UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
     seen_users: set = set()
     user_resumes: list = []
     for row in resumes_result.data:
         uid = row["user_id"]
-        if not uid:
+        if not uid or not UUID_RE.match(str(uid)):
             continue
         if uid not in seen_users:
             seen_users.add(uid)
