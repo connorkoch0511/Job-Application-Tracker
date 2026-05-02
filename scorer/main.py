@@ -115,17 +115,23 @@ def run():
         user_id = user_row["user_id"]
         resume_text = user_row["content"]
 
-        # Find jobs not yet scored for this user
-        scored_result = (
-            client.table("user_job_scores")
-            .select("job_id")
-            .eq("user_id", user_id)
-            .execute()
-        )
+        print(f"\nProcessing user_id={repr(user_id)}")
+
+        try:
+            scored_result = (
+                client.table("user_job_scores")
+                .select("job_id")
+                .eq("user_id", user_id)
+                .execute()
+            )
+        except Exception as e:
+            print(f"  Skipping user {repr(user_id)}: failed to query scores — {e}")
+            continue
+
         scored_job_ids = {row["job_id"] for row in scored_result.data}
         unscored = [j for j in all_jobs if j["id"] not in scored_job_ids]
 
-        print(f"\nUser {user_id}: scoring {len(unscored)} unscored jobs...")
+        print(f"  Scoring {len(unscored)} unscored jobs...")
 
         for i, job in enumerate(unscored):
             try:
