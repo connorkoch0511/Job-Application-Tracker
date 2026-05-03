@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/", label: "Jobs" },
   { href: "/applications", label: "Applications" },
   { href: "/resume", label: "Resume" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function NavBar() {
@@ -31,7 +32,7 @@ export default function NavBar() {
   }
 
   // Don't show nav on auth pages
-  if (pathname === "/login" || pathname === "/signup") return null;
+  if (pathname === "/login" || pathname === "/signup" || pathname === "/confirm") return null;
 
   return (
     <nav className="border-b border-gray-800 px-6 py-4">

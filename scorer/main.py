@@ -115,7 +115,18 @@ def run():
         user_id = user_row["user_id"]
         resume_text = user_row["content"]
 
-        print(f"\nProcessing user_id={repr(user_id)}")
+        print(f"\nProcessing user {user_id}")
+
+        # Load this user's keyword preferences
+        prefs_result = (
+            client.table("user_preferences")
+            .select("keywords")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        keywords_raw = (prefs_result.data[0].get("keywords", "") if prefs_result.data else "")
+        keywords = [k.strip().lower() for k in keywords_raw.split(",") if k.strip()]
 
         try:
             scored_result = (
@@ -125,13 +136,22 @@ def run():
                 .execute()
             )
         except Exception as e:
-            print(f"  Skipping user {repr(user_id)}: failed to query scores — {e}")
+            print(f"  Skipping: failed to query scores — {e}")
             continue
 
         scored_job_ids = {row["job_id"] for row in scored_result.data}
-        unscored = [j for j in all_jobs if j["id"] not in scored_job_ids]
 
-        print(f"  Scoring {len(unscored)} unscored jobs...")
+        # Filter to unscored jobs; if user has keywords, only score matching jobs
+        candidate_jobs = [j for j in all_jobs if j["id"] not in scored_job_ids]
+        if keywords:
+            candidate_jobs = [
+                j for j in candidate_jobs
+                if any(kw in (j.get("title") or "").lower() for kw in keywords)
+            ]
+
+        # Cap at 50 per run to avoid excessive API usage
+        unscored = candidate_jobs[:50]
+        print(f"  Keywords: {keywords or 'none (scoring all)'} | Scoring {len(unscored)} jobs...")
 
         for i, job in enumerate(unscored):
             try:

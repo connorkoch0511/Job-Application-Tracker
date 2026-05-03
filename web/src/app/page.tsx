@@ -3,7 +3,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase-browser";
 
-const SOURCE_LABELS: Record<string, string> = { linkedin: "RemoteOK", indeed: "Remotive" };
+const SOURCE_LABELS: Record<string, string> = {
+  remoteok: "RemoteOK",
+  remotive: "Remotive",
+  arbeitnow: "Arbeitnow",
+  themuse: "The Muse",
+  // legacy values kept in case old rows exist
+  linkedin: "RemoteOK",
+  indeed: "Remotive",
+};
 
 type UserScore = {
   score: number;
@@ -51,30 +59,61 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState<"all" | "linkedin" | "indeed">("all");
+  const [source, setSource] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
   const [scoringAll, setScoringAll] = useState(false);
   const [scoringId, setScoringId] = useState<string | null>(null);
   const [scoreMsg, setScoreMsg] = useState("");
   const supabase = createClient();
 
+  // Load user preferences as default filter values
+  useEffect(() => {
+    fetch("/api/preferences")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.keywords) setSearch(d.keywords.split(",")[0]?.trim() ?? "");
+        if (d.location) setLocationFilter(d.location);
+      })
+      .catch(() => {});
+  }, []);
+
   const load = useCallback(async () => {
-    let query = supabase
+    const { data } = await supabase
       .from("jobs")
       .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps)")
       .order("posted_at", { ascending: false });
-    if (source !== "all") query = query.eq("source", source);
-    const { data } = await query;
-    // Sort: scored jobs by score desc, unscored at the bottom
+
     const sorted = (data ?? []).sort((a, b) => {
-      const sa = a.user_job_scores?.[0]?.score ?? -1;
-      const sb = b.user_job_scores?.[0]?.score ?? -1;
+      const sa = (a as Job).user_job_scores?.[0]?.score ?? -1;
+      const sb = (b as Job).user_job_scores?.[0]?.score ?? -1;
       return sb - sa;
     });
     setJobs(sorted as Job[]);
     setLoading(false);
-  }, [source]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Derive available sources from data
+  const availableSources = Array.from(new Set(jobs.map((j) => j.source)));
+
+  // Client-side filtering
+  const visible = jobs.filter((job) => {
+    if (source !== "all" && job.source !== source) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (
+        !job.title.toLowerCase().includes(q) &&
+        !job.company.toLowerCase().includes(q)
+      ) return false;
+    }
+    if (locationFilter) {
+      const loc = (job.location ?? "").toLowerCase();
+      if (!loc.includes(locationFilter.toLowerCase())) return false;
+    }
+    return true;
+  });
 
   async function scoreAll() {
     setScoringAll(true);
@@ -120,14 +159,51 @@ export default function JobsPage() {
         <StatCard label="Strong Matches" value={strongMatches} />
       </div>
 
+      {/* Search + filters */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-center">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search title or company..."
+          className="flex-1 min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+        />
+        <input
+          type="text"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+          placeholder="Location (e.g. Remote, USA)"
+          className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+        />
+        {(search || locationFilter) && (
+          <button
+            onClick={() => { setSearch(""); setLocationFilter(""); }}
+            className="text-xs text-gray-400 hover:text-white transition-colors"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold">Job Listings</h2>
-          <div className="flex gap-2">
-            {(["all", "linkedin", "indeed"] as const).map((s) => (
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-xl font-bold">
+            Job Listings
+            {visible.length !== jobs.length && (
+              <span className="text-sm font-normal text-gray-400 ml-2">{visible.length} of {jobs.length}</span>
+            )}
+          </h2>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setSource("all")}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${source === "all" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}
+            >
+              All
+            </button>
+            {availableSources.map((s) => (
               <button key={s} onClick={() => setSource(s)}
                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${source === s ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
-                {s === "all" ? "All" : SOURCE_LABELS[s]}
+                {SOURCE_LABELS[s] ?? s}
               </button>
             ))}
           </div>
@@ -147,7 +223,7 @@ export default function JobsPage() {
       {loading && <p className="text-gray-400">Loading jobs...</p>}
 
       <div className="space-y-3">
-        {jobs.map((job) => {
+        {visible.map((job) => {
           const s = job.user_job_scores?.[0];
           return (
             <div key={job.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors">
@@ -157,6 +233,11 @@ export default function JobsPage() {
                     <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">
                       {SOURCE_LABELS[job.source] ?? job.source}
                     </span>
+                    {job.location && (
+                      <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
+                        {job.location}
+                      </span>
+                    )}
                     {job.posted_at && (
                       <span className="text-xs text-gray-500">
                         {new Date(job.posted_at).toLocaleDateString()}
@@ -164,9 +245,7 @@ export default function JobsPage() {
                     )}
                   </div>
                   <h3 className="font-semibold text-white text-lg leading-snug">{job.title}</h3>
-                  <p className="text-sm text-gray-400 mt-0.5">
-                    {job.company}{job.location && ` · ${job.location}`}
-                  </p>
+                  <p className="text-sm text-gray-400 mt-0.5">{job.company}</p>
                 </div>
                 <ScoreBadge score={s?.score ?? null} />
               </div>
@@ -207,9 +286,19 @@ export default function JobsPage() {
         })}
       </div>
 
-      {!loading && jobs.length === 0 && (
+      {!loading && visible.length === 0 && (
         <div className="text-center py-16">
-          <p className="text-gray-500">No jobs found. Run the scraper to fetch listings.</p>
+          <p className="text-gray-500">
+            {jobs.length === 0
+              ? "No jobs found. The cron job will scrape new listings daily."
+              : "No jobs match your filters."}
+          </p>
+          {jobs.length > 0 && (search || locationFilter) && (
+            <button onClick={() => { setSearch(""); setLocationFilter(""); }}
+              className="mt-3 text-sm text-indigo-400 hover:text-indigo-300">
+              Clear filters
+            </button>
+          )}
         </div>
       )}
     </div>
