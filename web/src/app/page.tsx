@@ -8,9 +8,8 @@ const SOURCE_LABELS: Record<string, string> = {
   remotive: "Remotive",
   arbeitnow: "Arbeitnow",
   themuse: "The Muse",
-  // legacy values kept in case old rows exist
-  linkedin: "RemoteOK",
-  indeed: "Remotive",
+  linkedin: "LinkedIn",
+  indeed: "Indeed",
 };
 
 type UserScore = {

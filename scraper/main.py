@@ -7,6 +7,8 @@ from remoteok import fetch_jobs as fetch_remoteok
 from remotive import fetch_jobs as fetch_remotive
 from arbeitnow import fetch_jobs as fetch_arbeitnow
 from themuse import fetch_jobs as fetch_themuse
+from linkedin_public import fetch_jobs as fetch_linkedin
+from indeed_public import fetch_jobs as fetch_indeed
 
 load_dotenv(override=True)
 
@@ -18,6 +20,8 @@ SOURCES = [
     ("Remotive", fetch_remotive),
     ("Arbeitnow", fetch_arbeitnow),
     ("The Muse", fetch_themuse),
+    ("LinkedIn (public)", fetch_linkedin),
+    ("Indeed (public)", fetch_indeed),
 ]
 
 
