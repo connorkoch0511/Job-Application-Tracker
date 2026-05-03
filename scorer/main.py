@@ -16,7 +16,7 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 client_groq = Groq(api_key=GROQ_API_KEY)
 
 SCORE_PROMPT = """
-You are a career coach evaluating how well a candidate's resume matches a job listing.
+You are an expert career coach performing a detailed evaluation of how well a candidate's resume matches a job listing.
 
 Resume:
 {resume}
@@ -26,25 +26,31 @@ Company: {company}
 Job Description:
 {description}
 
-Evaluate the match across these criteria:
-- Technical skills alignment (languages, frameworks, tools)
-- Years and type of experience
-- Domain/industry fit
-- Seniority level match
-- Any must-have requirements the candidate lacks
+Evaluate across ALL of the following dimensions:
+
+1. TECHNICAL SKILLS — Which required languages, frameworks, and tools does the candidate have? Which are missing?
+2. YEARS OF EXPERIENCE — Estimate the candidate's total years of relevant experience from their resume. Does it meet the job's stated requirements?
+3. SENIORITY MATCH — Compare the job's seniority level (junior/mid/senior/staff/principal) to what the candidate's resume suggests.
+4. JOB TITLE ALIGNMENT — Based on the candidate's resume, is this the type of role they should be targeting, or is it a mismatch with their career path?
+5. COMPENSATION FIT — If the job mentions a salary or pay range, assess whether it is appropriate for the candidate's experience level. If no salary is mentioned, state that.
+6. DOMAIN FIT — Does the candidate have relevant industry or domain experience?
 
 Score from 0 to 100:
 - 90-100: Exceptional match — apply immediately
-- 70-89: Strong match — worth applying with a tailored cover letter
-- 50-69: Partial match — consider applying if you can address the gaps
-- 0-49: Poor match — significant missing requirements
+- 70-89: Strong match — worth applying with tailored materials
+- 50-69: Partial match — significant gaps but worth considering
+- 0-49: Poor match — major missing requirements
 
 Respond ONLY with valid JSON in this exact format:
 {{
   "score": <number 0-100>,
-  "why_apply": "<2-3 sentences on the strongest reasons this candidate should apply — be specific about which skills/experience align>",
-  "gaps": "<1-2 sentences on the most important missing skills or experience, or 'No significant gaps identified' if score is 80+>",
-  "reasoning": "<1 sentence overall verdict>"
+  "reasoning": "<1 sentence overall verdict>",
+  "why_apply": "<2-3 sentences on the strongest reasons this candidate should apply, referencing specific skills and experience>",
+  "gaps": "<1-2 sentences on the most critical missing requirements, or 'No significant gaps identified' if score is 80+>",
+  "keyword_matches": "<comma-separated list of required skills/technologies from the job posting that ARE present in the resume>",
+  "keyword_gaps": "<comma-separated list of required skills/technologies from the job posting that are NOT in the resume>",
+  "experience_fit": "<1 sentence: estimate the candidate's years of experience and whether it meets the job's requirements>",
+  "title_match": "<1 sentence: does this job title align with the candidate's career trajectory and the type of roles their resume targets?>"
 }}
 """
 
@@ -73,6 +79,10 @@ def score_job(resume: str, job: dict) -> dict:
         "score_reasoning": parsed.get("reasoning", ""),
         "why_apply": parsed.get("why_apply", ""),
         "gaps": parsed.get("gaps", ""),
+        "keyword_matches": parsed.get("keyword_matches", ""),
+        "keyword_gaps": parsed.get("keyword_gaps", ""),
+        "experience_fit": parsed.get("experience_fit", ""),
+        "title_match": parsed.get("title_match", ""),
     }
 
 
@@ -163,6 +173,10 @@ def run():
                     "score_reasoning": result["score_reasoning"],
                     "why_apply": result["why_apply"],
                     "gaps": result["gaps"],
+                    "keyword_matches": result["keyword_matches"],
+                    "keyword_gaps": result["keyword_gaps"],
+                    "experience_fit": result["experience_fit"],
+                    "title_match": result["title_match"],
                     "scored_at": datetime.now(timezone.utc).isoformat(),
                 }).execute()
                 print(f"  [{result['score']:.1f}] {job['title']} @ {job['company']}")

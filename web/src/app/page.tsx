@@ -17,6 +17,10 @@ type UserScore = {
   score_reasoning: string | null;
   why_apply: string | null;
   gaps: string | null;
+  keyword_matches: string | null;
+  keyword_gaps: string | null;
+  experience_fit: string | null;
+  title_match: string | null;
 };
 
 type Job = {
@@ -46,6 +50,24 @@ function ScoreBadge({ score }: { score: number | null }) {
   );
 }
 
+function KeywordPills({ label, keywords, color }: { label: string; keywords: string; color: "green" | "red" }) {
+  const items = keywords.split(",").map((k) => k.trim()).filter(Boolean);
+  if (!items.length) return null;
+  const styles = color === "green"
+    ? "bg-green-500/10 text-green-400 border-green-500/20"
+    : "bg-red-500/10 text-red-400 border-red-500/20";
+  return (
+    <div className="mt-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
+      <div className="flex flex-wrap gap-1">
+        {items.map((kw) => (
+          <span key={kw} className={`text-xs px-2 py-0.5 rounded-full border ${styles}`}>{kw}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-center">
@@ -61,12 +83,11 @@ export default function JobsPage() {
   const [source, setSource] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
-  const [scoringAll, setScoringAll] = useState(false);
-  const [scoringId, setScoringId] = useState<string | null>(null);
+  const [scoringIds, setScoringIds] = useState<Set<string>>(new Set());
+  const [scoringVisible, setScoringVisible] = useState(false);
   const [scoreMsg, setScoreMsg] = useState("");
   const supabase = createClient();
 
-  // Load user preferences as default filter values
   useEffect(() => {
     fetch("/api/preferences")
       .then((r) => r.json())
@@ -80,7 +101,7 @@ export default function JobsPage() {
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("jobs")
-      .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps)")
+      .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps, keyword_matches, keyword_gaps, experience_fit, title_match)")
       .order("posted_at", { ascending: false });
 
     const sorted = (data ?? []).sort((a, b) => {
@@ -94,43 +115,53 @@ export default function JobsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Derive available sources from data
   const availableSources = Array.from(new Set(jobs.map((j) => j.source)));
 
-  // Client-side filtering
   const visible = jobs.filter((job) => {
     if (source !== "all" && job.source !== source) return false;
     if (search) {
       const q = search.toLowerCase();
-      if (
-        !job.title.toLowerCase().includes(q) &&
-        !job.company.toLowerCase().includes(q)
-      ) return false;
+      if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
     }
     if (locationFilter) {
-      const loc = (job.location ?? "").toLowerCase();
-      if (!loc.includes(locationFilter.toLowerCase())) return false;
+      if (!(job.location ?? "").toLowerCase().includes(locationFilter.toLowerCase())) return false;
     }
     return true;
   });
 
-  async function scoreAll() {
-    setScoringAll(true);
-    setScoreMsg("Scoring all jobs — this takes a few minutes...");
-    const res = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+  const unscoredVisible = visible.filter((j) => !j.user_job_scores?.[0]);
+
+  async function scoreVisible() {
+    const toScore = unscoredVisible.slice(0, 20);
+    if (!toScore.length) return;
+    setScoringVisible(true);
+    setScoreMsg(`Scoring ${toScore.length} jobs...`);
+    const ids = toScore.map((j) => j.id);
+    toScore.forEach((j) => setScoringIds((s) => new Set(s).add(j.id)));
+
+    const res = await fetch("/api/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobIds: ids }),
+    });
     const json = await res.json();
-    if (!res.ok) { setScoreMsg(`Error: ${json.error}`); setScoringAll(false); return; }
+    setScoringVisible(false);
+    setScoringIds(new Set());
+    if (!res.ok) { setScoreMsg(`Error: ${json.error}`); return; }
     setScoreMsg(`Done! ${json.results.length} jobs scored.`);
-    setScoringAll(false);
     load();
   }
 
   async function scoreOne(jobId: string) {
-    setScoringId(jobId);
-    const res = await fetch("/api/score", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId }) });
+    setScoringIds((s) => new Set(s).add(jobId));
+    const res = await fetch("/api/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobIds: [jobId] }),
+    });
     const json = await res.json();
+    setScoringIds((s) => { const n = new Set(s); n.delete(jobId); return n; });
     if (!res.ok) alert(`Error: ${json.error}`);
-    setScoringId(null);
     load();
   }
 
@@ -161,24 +192,18 @@ export default function JobsPage() {
       {/* Search + filters */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-center">
         <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          type="text" value={search} onChange={(e) => setSearch(e.target.value)}
           placeholder="Search title or company..."
           className="flex-1 min-w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
         />
         <input
-          type="text"
-          value={locationFilter}
-          onChange={(e) => setLocationFilter(e.target.value)}
+          type="text" value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}
           placeholder="Location (e.g. Remote, USA)"
           className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
         />
         {(search || locationFilter) && (
-          <button
-            onClick={() => { setSearch(""); setLocationFilter(""); }}
-            className="text-xs text-gray-400 hover:text-white transition-colors"
-          >
+          <button onClick={() => { setSearch(""); setLocationFilter(""); }}
+            className="text-xs text-gray-400 hover:text-white transition-colors">
             Clear
           </button>
         )}
@@ -193,10 +218,8 @@ export default function JobsPage() {
             )}
           </h2>
           <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setSource("all")}
-              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${source === "all" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}
-            >
+            <button onClick={() => setSource("all")}
+              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${source === "all" ? "bg-indigo-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
               All
             </button>
             {availableSources.map((s) => (
@@ -207,10 +230,13 @@ export default function JobsPage() {
             ))}
           </div>
         </div>
-        <button onClick={scoreAll} disabled={scoringAll}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-          {scoringAll ? "Scoring..." : "Score All Jobs"}
-        </button>
+
+        {unscoredVisible.length > 0 && (
+          <button onClick={scoreVisible} disabled={scoringVisible}
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+            {scoringVisible ? "Scoring..." : `Score visible jobs (${Math.min(unscoredVisible.length, 20)})`}
+          </button>
+        )}
       </div>
 
       {scoreMsg && (
@@ -224,6 +250,7 @@ export default function JobsPage() {
       <div className="space-y-3">
         {visible.map((job) => {
           const s = job.user_job_scores?.[0];
+          const isScoring = scoringIds.has(job.id);
           return (
             <div key={job.id} className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors">
               <div className="flex items-start justify-between gap-4">
@@ -233,14 +260,10 @@ export default function JobsPage() {
                       {SOURCE_LABELS[job.source] ?? job.source}
                     </span>
                     {job.location && (
-                      <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">
-                        {job.location}
-                      </span>
+                      <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">{job.location}</span>
                     )}
                     {job.posted_at && (
-                      <span className="text-xs text-gray-500">
-                        {new Date(job.posted_at).toLocaleDateString()}
-                      </span>
+                      <span className="text-xs text-gray-500">{new Date(job.posted_at).toLocaleDateString()}</span>
                     )}
                   </div>
                   <h3 className="font-semibold text-white text-lg leading-snug">{job.title}</h3>
@@ -249,17 +272,35 @@ export default function JobsPage() {
                 <ScoreBadge score={s?.score ?? null} />
               </div>
 
-              {s?.why_apply && (
+              {s && (
                 <div className="mt-4 space-y-2">
-                  <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3">
-                    <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-1">Why Apply</p>
-                    <p className="text-sm text-gray-300">{s.why_apply}</p>
-                  </div>
+                  {s.why_apply && (
+                    <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-1">Why Apply</p>
+                      <p className="text-sm text-gray-300">{s.why_apply}</p>
+                    </div>
+                  )}
                   {s.gaps && s.gaps !== "No significant gaps identified" && (
                     <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-lg p-3">
                       <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-1">Gaps to Address</p>
                       <p className="text-sm text-gray-300">{s.gaps}</p>
                     </div>
+                  )}
+                  {(s.experience_fit || s.title_match) && (
+                    <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg p-3 space-y-1">
+                      {s.experience_fit && (
+                        <p className="text-sm text-gray-300"><span className="text-xs font-semibold text-blue-400 uppercase tracking-wide mr-2">Experience</span>{s.experience_fit}</p>
+                      )}
+                      {s.title_match && (
+                        <p className="text-sm text-gray-300"><span className="text-xs font-semibold text-blue-400 uppercase tracking-wide mr-2">Title Fit</span>{s.title_match}</p>
+                      )}
+                    </div>
+                  )}
+                  {s.keyword_matches && (
+                    <KeywordPills label="Matching keywords" keywords={s.keyword_matches} color="green" />
+                  )}
+                  {s.keyword_gaps && (
+                    <KeywordPills label="Missing keywords" keywords={s.keyword_gaps} color="red" />
                   )}
                 </div>
               )}
@@ -270,9 +311,9 @@ export default function JobsPage() {
                   View listing →
                 </a>
                 {!s && (
-                  <button onClick={() => scoreOne(job.id)} disabled={scoringId === job.id}
+                  <button onClick={() => scoreOne(job.id)} disabled={isScoring}
                     className="text-sm text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors">
-                    {scoringId === job.id ? "Scoring..." : "Score this job"}
+                    {isScoring ? "Scoring..." : "Score this job"}
                   </button>
                 )}
                 <button onClick={() => markApplied(job.id)}
@@ -288,9 +329,7 @@ export default function JobsPage() {
       {!loading && visible.length === 0 && (
         <div className="text-center py-16">
           <p className="text-gray-500">
-            {jobs.length === 0
-              ? "No jobs found. The cron job will scrape new listings daily."
-              : "No jobs match your filters."}
+            {jobs.length === 0 ? "No jobs found. The cron job will scrape new listings daily." : "No jobs match your filters."}
           </p>
           {jobs.length > 0 && (search || locationFilter) && (
             <button onClick={() => { setSearch(""); setLocationFilter(""); }}

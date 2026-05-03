@@ -60,14 +60,14 @@ def _parse_cards(html: str) -> list[dict]:
 
 
 def fetch_jobs() -> list[dict]:
-    keywords_raw = os.getenv("JOB_KEYWORDS", "software engineer")
+    keywords_raw = os.getenv("JOB_KEYWORDS", "software engineer,python developer,backend engineer,data engineer,full stack developer")
     search_terms = [k.strip() for k in keywords_raw.split(",") if k.strip()]
 
     seen_ids: set = set()
     jobs = []
 
     for term in search_terms:
-        for start in range(0, 75, 25):  # 3 pages × 25 = 75 results per keyword
+        for start in range(0, 125, 25):  # 5 pages × 25 = 125 results per keyword
             try:
                 resp = requests.get(
                     "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
