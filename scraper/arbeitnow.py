@@ -1,3 +1,4 @@
+import html as html_module
 import requests
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
@@ -48,8 +49,8 @@ def fetch_jobs() -> list[dict]:
             jobs.append({
                 "source": SOURCE,
                 "external_id": slug,
-                "title": (item.get("title") or "").strip(),
-                "company": (item.get("company_name") or "").strip(),
+                "title": html_module.unescape((item.get("title") or "").strip()),
+                "company": html_module.unescape((item.get("company_name") or "").strip()),
                 "location": (item.get("location") or "Remote").strip(),
                 "description": description,
                 "url": (item.get("url") or "").strip(),
