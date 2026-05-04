@@ -35,7 +35,7 @@ export default function ResumePage() {
     const json = await res.json();
 
     if (res.ok) {
-      setMessage("Resume uploaded successfully.");
+      setMessage("Resume uploaded! Your existing job scores may be outdated — use \"Rescore all\" on the Jobs page to refresh them.");
       loadCurrent();
       if (fileRef.current) fileRef.current.value = "";
     } else {

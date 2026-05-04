@@ -86,8 +86,10 @@ export default function JobsPage() {
   const [source, setSource] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
+  const [minScore, setMinScore] = useState(0);
   const [scoringIds, setScoringIds] = useState<Set<string>>(new Set());
   const [scoringVisible, setScoringVisible] = useState(false);
+  const [rescoring, setRescoring] = useState(false);
   const [scoreMsg, setScoreMsg] = useState("");
   const supabase = createClient();
 
@@ -131,6 +133,10 @@ export default function JobsPage() {
       const jobLoc = (job.location ?? "").toLowerCase();
       if (!locs.some((l) => jobLoc.includes(l))) return false;
     }
+    if (minScore > 0) {
+      const score = job.user_job_scores?.[0]?.score ?? null;
+      if (score === null || score < minScore) return false;
+    }
     return true;
   });
 
@@ -141,13 +147,12 @@ export default function JobsPage() {
     if (!toScore.length) return;
     setScoringVisible(true);
     setScoreMsg(`Scoring ${toScore.length} jobs...`);
-    const ids = toScore.map((j) => j.id);
     toScore.forEach((j) => setScoringIds((s) => new Set(s).add(j.id)));
 
     const res = await fetch("/api/score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jobIds: ids }),
+      body: JSON.stringify({ jobIds: toScore.map((j) => j.id) }),
     });
     const json = await res.json();
     setScoringVisible(false);
@@ -170,6 +175,27 @@ export default function JobsPage() {
     load();
   }
 
+  async function rescoreAll() {
+    const scored = jobs.filter((j) => j.user_job_scores?.[0]?.score != null);
+    const toRescore = scored.slice(0, 20);
+    if (!toRescore.length) return;
+    setRescoring(true);
+    setScoreMsg(`Rescoring ${toRescore.length} jobs...`);
+    toRescore.forEach((j) => setScoringIds((s) => new Set(s).add(j.id)));
+
+    const res = await fetch("/api/score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobIds: toRescore.map((j) => j.id) }),
+    });
+    const json = await res.json();
+    setRescoring(false);
+    setScoringIds(new Set());
+    if (!res.ok) { setScoreMsg(`Error: ${json.error}`); return; }
+    setScoreMsg(`Rescored ${json.results.length} jobs with updated resume.`);
+    load();
+  }
+
   async function markApplied(jobId: string) {
     const { data: { user } } = await supabase.auth.getUser();
     await supabase.from("applications").upsert(
@@ -184,6 +210,8 @@ export default function JobsPage() {
     ? Math.round(scored.reduce((s, j) => s + j.user_job_scores[0].score, 0) / scored.length)
     : 0;
   const strongMatches = scored.filter((j) => j.user_job_scores[0].score >= 80).length;
+
+  const hasActiveFilters = search || locationFilter || minScore > 0;
 
   return (
     <div>
@@ -206,9 +234,21 @@ export default function JobsPage() {
           placeholder="Location (e.g. Remote, USA)"
           className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
         />
-        {(search || locationFilter) && (
-          <button onClick={() => { setSearch(""); setLocationFilter(""); }}
-            className="text-xs text-gray-400 hover:text-white transition-colors">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-500 whitespace-nowrap">
+            Min score: <span className="text-white font-medium">{minScore > 0 ? minScore : "any"}</span>
+          </label>
+          <input
+            type="range" min={0} max={100} step={5} value={minScore}
+            onChange={(e) => setMinScore(Number(e.target.value))}
+            className="w-28 accent-indigo-500"
+          />
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={() => { setSearch(""); setLocationFilter(""); setMinScore(0); }}
+            className="text-xs text-gray-400 hover:text-white transition-colors"
+          >
             Clear
           </button>
         )}
@@ -236,12 +276,20 @@ export default function JobsPage() {
           </div>
         </div>
 
-        {unscoredVisible.length > 0 && (
-          <button onClick={scoreVisible} disabled={scoringVisible}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-            {scoringVisible ? "Scoring..." : `Score visible jobs (${Math.min(unscoredVisible.length, 20)})`}
-          </button>
-        )}
+        <div className="flex gap-2 flex-wrap">
+          {unscoredVisible.length > 0 && (
+            <button onClick={scoreVisible} disabled={scoringVisible}
+              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+              {scoringVisible ? "Scoring..." : `Score visible (${Math.min(unscoredVisible.length, 20)})`}
+            </button>
+          )}
+          {scored.length > 0 && (
+            <button onClick={rescoreAll} disabled={rescoring}
+              className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+              {rescoring ? "Rescoring..." : `Rescore all (${Math.min(scored.length, 20)})`}
+            </button>
+          )}
+        </div>
       </div>
 
       {scoreMsg && (
@@ -330,10 +378,15 @@ export default function JobsPage() {
                   className="text-sm font-medium text-indigo-400 hover:text-indigo-300 transition-colors">
                   View listing →
                 </a>
-                {!s && (
+                {!s ? (
                   <button onClick={() => scoreOne(job.id)} disabled={isScoring}
                     className="text-sm text-indigo-400 hover:text-indigo-300 disabled:opacity-50 transition-colors">
                     {isScoring ? "Scoring..." : "Score this job"}
+                  </button>
+                ) : (
+                  <button onClick={() => scoreOne(job.id)} disabled={isScoring}
+                    className="text-sm text-gray-500 hover:text-gray-300 disabled:opacity-50 transition-colors">
+                    {isScoring ? "Rescoring..." : "↻ Rescore"}
                   </button>
                 )}
                 <button onClick={() => markApplied(job.id)}
@@ -349,11 +402,15 @@ export default function JobsPage() {
       {!loading && visible.length === 0 && (
         <div className="text-center py-16">
           <p className="text-gray-500">
-            {jobs.length === 0 ? "No jobs found. The cron job will scrape new listings daily." : "No jobs match your filters."}
+            {jobs.length === 0
+              ? "No jobs found. The cron job will scrape new listings daily."
+              : "No jobs match your filters."}
           </p>
-          {jobs.length > 0 && (search || locationFilter) && (
-            <button onClick={() => { setSearch(""); setLocationFilter(""); }}
-              className="mt-3 text-sm text-indigo-400 hover:text-indigo-300">
+          {jobs.length > 0 && hasActiveFilters && (
+            <button
+              onClick={() => { setSearch(""); setLocationFilter(""); setMinScore(0); }}
+              className="mt-3 text-sm text-indigo-400 hover:text-indigo-300"
+            >
               Clear filters
             </button>
           )}

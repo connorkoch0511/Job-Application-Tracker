@@ -39,3 +39,22 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python scorer/main.py
+
+      - name: Run cleanup (delete jobs older than 30 days)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python cleanup/main.py
+
+      - name: Trigger email digest
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -n "$CRON_SECRET" ] && [ -n "$APP_URL" ]; then
+            curl -sf -X GET "$APP_URL/api/digest" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              && echo "Digest sent." || echo "Digest request failed (non-fatal)."
+          else
+            echo "CRON_SECRET or APP_URL not set — skipping digest."
+          fi
