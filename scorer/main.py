@@ -151,13 +151,18 @@ def run():
 
         scored_job_ids = {row["job_id"] for row in scored_result.data}
 
-        # Filter to unscored jobs; if user has keywords, only score matching jobs
+        # Filter to unscored jobs; if user has keywords, score jobs that match
+        # in the title, in the description, or have no description (LinkedIn jobs
+        # fetched via keyword search are already pre-filtered at the source).
         candidate_jobs = [j for j in all_jobs if j["id"] not in scored_job_ids]
         if keywords:
-            candidate_jobs = [
-                j for j in candidate_jobs
-                if any(kw in (j.get("title") or "").lower() for kw in keywords)
-            ]
+            def matches(job):
+                title = (job.get("title") or "").lower()
+                desc = (job.get("description") or "").lower()
+                if not desc:
+                    return True  # no description means it was keyword-searched (e.g. LinkedIn)
+                return any(kw in title or kw in desc for kw in keywords)
+            candidate_jobs = [j for j in candidate_jobs if matches(j)]
 
         # Cap at 50 per run to avoid excessive API usage
         unscored = candidate_jobs[:50]
