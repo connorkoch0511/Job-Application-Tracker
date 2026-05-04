@@ -23,7 +23,7 @@ test.describe("Authentication pages", () => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 
     await page.goto(`${baseURL}/login`);
-    await expect(page.getByRole("heading", { name: /sign in/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /job tracker/i })).toBeVisible();
     await page.screenshot({
       path: "tests/screenshots/01-login.png",
       fullPage: true,
