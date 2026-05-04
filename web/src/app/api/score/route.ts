@@ -4,7 +4,7 @@ import Groq from "groq-sdk";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const SCORE_PROMPT = `You are an expert career coach performing a detailed evaluation of how well a candidate's resume matches a job listing.
+const SCORE_PROMPT = `You are an expert career coach performing a strict, honest evaluation of how well a candidate's resume matches a job listing. Do not be generous — if the candidate falls short of a requirement, say so clearly and penalize the score accordingly.
 
 Resume:
 {resume}
@@ -17,28 +17,33 @@ Job Description:
 Evaluate across ALL of the following dimensions:
 
 1. TECHNICAL SKILLS — Which required languages, frameworks, and tools does the candidate have? Which are missing?
-2. YEARS OF EXPERIENCE — Estimate the candidate's total years of relevant experience from their resume. Does it meet the job's stated requirements?
-3. SENIORITY MATCH — Compare the job's seniority level (junior/mid/senior/staff/principal) to what the candidate's resume suggests.
-4. JOB TITLE ALIGNMENT — Based on the candidate's resume, is this the type of role they should be targeting, or is it a mismatch with their career path?
-5. COMPENSATION FIT — If the job mentions a salary or pay range, assess whether it is appropriate for the candidate's experience level. If no salary is mentioned, state that.
-6. DOMAIN FIT — Does the candidate have relevant industry or domain experience?
+2. YEARS OF EXPERIENCE — Count the candidate's total years of relevant professional experience from their resume dates. State the exact number. If the job requires more years than the candidate has, this is a significant gap and MUST lower the score by at least 15 points. Do not round up or give benefit of the doubt on experience.
+3. SENIORITY MATCH — Compare the job's seniority level (junior/mid/senior/staff/principal) to what the candidate's resume suggests. A junior candidate applying to a senior role is a poor match.
+4. JOB TITLE ALIGNMENT — Based on the candidate's resume, is this the type of role they should be targeting?
+5. SALARY — If the job description mentions a specific salary, pay range, or compensation, extract it exactly (e.g. "$120,000–$150,000/yr" or "$45/hr"). If no salary is mentioned, return null.
+6. CAREER GROWTH — Is this role a step up, lateral move, or step down for the candidate based on their current trajectory?
+7. DOMAIN FIT — Does the candidate have relevant industry or domain experience?
 
-Score from 0 to 100:
-- 90-100: Exceptional match — apply immediately
-- 70-89: Strong match — worth applying with tailored materials
-- 50-69: Partial match — significant gaps but worth considering
-- 0-49: Poor match — major missing requirements
+Score from 0 to 100 — be strict:
+- 90-100: Exceptional match — meets all requirements
+- 70-89: Strong match — minor gaps only
+- 50-69: Partial match — notable gaps (missing skills or experience shortfall of 1-2 years)
+- 30-49: Weak match — significant gaps (missing key skills or experience shortfall of 3+ years)
+- 0-29: Poor match — major missing requirements
 
 Respond ONLY with valid JSON in this exact format:
 {
   "score": <number 0-100>,
   "reasoning": "<1 sentence overall verdict>",
-  "why_apply": "<2-3 sentences on the strongest reasons this candidate should apply, referencing specific skills and experience>",
-  "gaps": "<1-2 sentences on the most critical missing requirements, or 'No significant gaps identified' if score is 80+>",
+  "why_apply": "<2-3 sentences on the strongest reasons this candidate should apply>",
+  "gaps": "<1-2 sentences on the most critical missing requirements. If experience is short, state exactly how many years short they are.>",
   "keyword_matches": "<comma-separated list of required skills/technologies from the job posting that ARE present in the resume>",
   "keyword_gaps": "<comma-separated list of required skills/technologies from the job posting that are NOT in the resume>",
-  "experience_fit": "<1 sentence: estimate the candidate's years of experience and whether it meets the job requirements>",
-  "title_match": "<1 sentence: does this job title align with the candidate's career trajectory and the type of roles their resume targets?>"
+  "experience_fit": "<1 sentence: state the candidate's exact years of experience vs. the job's requirement, and whether they meet it>",
+  "title_match": "<1 sentence: does this job title align with the candidate's career trajectory?>",
+  "resume_tips": "<2-3 specific, actionable changes the candidate should make to their resume to improve their chances for THIS job (e.g. 'Add metrics to your project descriptions', 'Highlight your AWS experience in the summary')>",
+  "salary": "<extracted salary/range from the job description, or null if not mentioned>",
+  "career_growth": "<1 sentence: is this a step up, lateral move, or step down based on their current level and trajectory?>"
 }`;
 
 async function scoreJob(resume: string, job: { title: string; company: string; description: string | null }) {
@@ -100,6 +105,9 @@ export async function POST(req: NextRequest) {
         keyword_gaps: scored.keyword_gaps ?? "",
         experience_fit: scored.experience_fit ?? "",
         title_match: scored.title_match ?? "",
+        resume_tips: scored.resume_tips ?? "",
+        salary: scored.salary ?? "",
+        career_growth: scored.career_growth ?? "",
         scored_at: new Date().toISOString(),
       }, { onConflict: "user_id,job_id" });
       results.push({ id: job.id, score: scored.score });

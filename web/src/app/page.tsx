@@ -21,6 +21,9 @@ type UserScore = {
   keyword_gaps: string | null;
   experience_fit: string | null;
   title_match: string | null;
+  resume_tips: string | null;
+  salary: string | null;
+  career_growth: string | null;
 };
 
 type Job = {
@@ -101,7 +104,7 @@ export default function JobsPage() {
   const load = useCallback(async () => {
     const { data } = await supabase
       .from("jobs")
-      .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps, keyword_matches, keyword_gaps, experience_fit, title_match)")
+      .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps, keyword_matches, keyword_gaps, experience_fit, title_match, resume_tips, salary, career_growth)")
       .order("posted_at", { ascending: false });
 
     const sorted = (data ?? []).sort((a, b) => {
@@ -264,6 +267,9 @@ export default function JobsPage() {
                     {job.location && (
                       <span className="text-xs bg-gray-800 text-gray-500 px-2 py-0.5 rounded-full">{job.location}</span>
                     )}
+                    {s?.salary && (
+                      <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">{s.salary}</span>
+                    )}
                     {job.posted_at && (
                       <span className="text-xs text-gray-500">{new Date(job.posted_at).toLocaleDateString()}</span>
                     )}
@@ -296,6 +302,18 @@ export default function JobsPage() {
                       {s.title_match && (
                         <p className="text-sm text-gray-300"><span className="text-xs font-semibold text-blue-400 uppercase tracking-wide mr-2">Title Fit</span>{s.title_match}</p>
                       )}
+                    </div>
+                  )}
+                  {s.career_growth && (
+                    <div className="bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-purple-400 uppercase tracking-wide mb-1">Career Growth</p>
+                      <p className="text-sm text-gray-300">{s.career_growth}</p>
+                    </div>
+                  )}
+                  {s.resume_tips && (
+                    <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-orange-400 uppercase tracking-wide mb-1">Resume Tips</p>
+                      <p className="text-sm text-gray-300">{s.resume_tips}</p>
                     </div>
                   )}
                   {s.keyword_matches && (
