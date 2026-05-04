@@ -92,7 +92,7 @@ export default function JobsPage() {
     fetch("/api/preferences")
       .then((r) => r.json())
       .then((d) => {
-        if (d.keywords) setSearch(d.keywords.split(",")[0]?.trim() ?? "");
+        // Don't pre-fill keyword search — preferences drive cron scoring, not the search box
         if (d.location) setLocationFilter(d.location);
       })
       .catch(() => {});

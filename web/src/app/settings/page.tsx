@@ -73,6 +73,7 @@ export default function SettingsPage() {
               className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
             <p className="text-xs text-gray-500 mt-1">
+              Single value — "City, State" format works fine (e.g. Austin, Texas or Remote).
               Used as the default location filter on the Jobs page.
             </p>
           </div>
