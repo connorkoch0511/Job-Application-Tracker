@@ -124,7 +124,9 @@ export default function JobsPage() {
       if (!job.title.toLowerCase().includes(q) && !job.company.toLowerCase().includes(q)) return false;
     }
     if (locationFilter) {
-      if (!(job.location ?? "").toLowerCase().includes(locationFilter.toLowerCase())) return false;
+      const locs = locationFilter.split(",").map((l) => l.trim().toLowerCase()).filter(Boolean);
+      const jobLoc = (job.location ?? "").toLowerCase();
+      if (!locs.some((l) => jobLoc.includes(l))) return false;
     }
     return true;
   });
