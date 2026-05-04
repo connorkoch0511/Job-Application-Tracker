@@ -18,7 +18,7 @@ def fetch_jobs() -> list[dict]:
         try:
             resp = requests.get(
                 "https://www.arbeitnow.com/api/job-board-api",
-                params={"page": page},
+                params={"page": page, "remote": "true"},
                 headers={"User-Agent": "job-tracker-portfolio"},
                 timeout=15,
             )
