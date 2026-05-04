@@ -1,4 +1,3 @@
-import os
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -22,7 +21,6 @@ def _parse_cards(html: str) -> list[dict]:
             job_id = card.get("data-entity-urn", "").split(":")[-1]
             if not job_id:
                 continue
-
             title_el = card.find("h3", class_="base-search-card__title")
             company_el = card.find("h4", class_="base-search-card__subtitle")
             location_el = card.find("span", class_="job-search-card__location")
@@ -59,42 +57,42 @@ def _parse_cards(html: str) -> list[dict]:
     return jobs
 
 
-def fetch_jobs() -> list[dict]:
-    keywords_raw = os.getenv("JOB_KEYWORDS", "software engineer,python developer,backend engineer,data engineer,full stack developer")
-    search_terms = [k.strip() for k in keywords_raw.split(",") if k.strip()]
-
+def fetch_jobs(search_combos: list[tuple[str, str]]) -> list[dict]:
+    """
+    search_combos: list of (keyword, location) pairs derived from user preferences.
+    """
     seen_ids: set = set()
     jobs = []
 
-    for term in search_terms:
-        for start in range(0, 125, 25):  # 5 pages × 25 = 125 results per keyword
+    for keyword, location in search_combos:
+        for start in range(0, 125, 25):  # 5 pages × 25 = 125 per combo
             try:
                 resp = requests.get(
                     "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search",
                     params={
-                        "keywords": term,
-                        "location": os.getenv("JOB_LOCATION", ""),
+                        "keywords": keyword,
+                        "location": location,
                         "start": start,
-                        "f_TPR": "r604800",  # posted in last 7 days
+                        "f_TPR": "r604800",  # last 7 days
                     },
                     headers=HEADERS,
                     timeout=15,
                 )
                 if resp.status_code != 200:
-                    print(f"  LinkedIn blocked ({resp.status_code}) for '{term}'")
+                    print(f"  LinkedIn blocked ({resp.status_code}) for '{keyword}' in '{location}'")
                     break
 
                 cards = _parse_cards(resp.text)
-                for job in cards:
-                    if job["external_id"] not in seen_ids:
-                        seen_ids.add(job["external_id"])
-                        jobs.append(job)
+                new = [j for j in cards if j["external_id"] not in seen_ids]
+                for j in new:
+                    seen_ids.add(j["external_id"])
+                jobs.extend(new)
 
                 if len(cards) < 25:
                     break
                 time.sleep(1)
             except Exception as e:
-                print(f"  LinkedIn error for '{term}': {e}")
+                print(f"  LinkedIn error for '{keyword}': {e}")
                 break
 
     return jobs

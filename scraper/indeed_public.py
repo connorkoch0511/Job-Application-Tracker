@@ -32,10 +32,15 @@ def _parse_age(age_str: str) -> str | None:
     return (now - delta).isoformat() if delta else None
 
 
-def fetch_jobs() -> list[dict]:
-    keywords_raw = os.getenv("JOB_KEYWORDS", "software engineer")
-    search_terms = [k.strip() for k in keywords_raw.split(",") if k.strip()]
-    location = os.getenv("JOB_LOCATION", "remote")
+def fetch_jobs(search_combos: list[tuple[str, str]] | None = None) -> list[dict]:
+    if not search_combos:
+        keywords_raw = os.getenv("JOB_KEYWORDS", "software engineer")
+        location = os.getenv("JOB_LOCATION", "remote")
+        search_combos = [(k.strip(), location) for k in keywords_raw.split(",") if k.strip()]
+
+    # Flatten to unique (term, location) — reuse existing loop structure
+    search_terms = list({kw for kw, _ in search_combos})
+    location = next((loc for _, loc in search_combos if loc), os.getenv("JOB_LOCATION", "remote"))
 
     seen_ids: set = set()
     jobs = []
