@@ -167,6 +167,10 @@ def run():
             def matches(job):
                 title = (job.get("title") or "").lower()
                 desc = (job.get("description") or "").lower()
+                if not desc:
+                    # No description (LinkedIn) — require keyword in title only
+                    return any(kw in title for kw in keywords)
+                # Has description — match title or description
                 return any(kw in title or kw in desc for kw in keywords)
             candidate_jobs = [j for j in candidate_jobs if matches(j)]
 
