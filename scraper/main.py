@@ -7,7 +7,6 @@ from remoteok import fetch_jobs as fetch_remoteok
 from remotive import fetch_jobs as fetch_remotive
 from themuse import fetch_jobs as fetch_themuse
 from linkedin_public import fetch_jobs as fetch_linkedin
-from indeed_public import fetch_jobs as fetch_indeed
 
 load_dotenv(override=True)
 
@@ -104,15 +103,6 @@ def run():
     except Exception as e:
         print(f"  Failed: {e}")
 
-    # Indeed (currently blocked from GitHub Actions, kept for local use)
-    print("\nScraping Indeed (public)...")
-    try:
-        jobs = fetch_indeed(combos)
-        print(f"  Fetched {len(jobs)} jobs")
-        new = upsert_jobs(client, jobs, "Indeed")
-        print(f"  {new} new jobs added")
-    except Exception as e:
-        print(f"  Failed: {e}")
 
 
 if __name__ == "__main__":
