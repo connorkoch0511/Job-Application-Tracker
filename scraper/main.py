@@ -5,7 +5,6 @@ from supabase import create_client
 
 from remoteok import fetch_jobs as fetch_remoteok
 from remotive import fetch_jobs as fetch_remotive
-from arbeitnow import fetch_jobs as fetch_arbeitnow
 from themuse import fetch_jobs as fetch_themuse
 from linkedin_public import fetch_jobs as fetch_linkedin
 from indeed_public import fetch_jobs as fetch_indeed
@@ -19,7 +18,6 @@ SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 BROAD_SOURCES = [
     ("RemoteOK", fetch_remoteok),
     ("Remotive", fetch_remotive),
-    ("Arbeitnow", fetch_arbeitnow),
     ("The Muse", fetch_themuse),
 ]
 
