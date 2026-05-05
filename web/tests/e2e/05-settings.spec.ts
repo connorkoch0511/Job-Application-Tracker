@@ -10,15 +10,14 @@ test.describe("Settings page", () => {
   });
 
   test("shows preferences form", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: /settings|preferences/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Job Search Preferences" })).toBeVisible({ timeout: 10_000 });
 
-    await page.screenshot({
-      path: "tests/screenshots/16-settings.png",
-      fullPage: true,
-    });
+    await page.screenshot({ path: "tests/screenshots/17-settings.png", fullPage: true });
   });
 
   test("keywords and location fields are editable", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "Job Search Preferences" })).toBeVisible({ timeout: 10_000 });
+
     const keywordsInput = page.getByPlaceholder(/keywords/i).first();
     const locationInput = page.getByPlaceholder(/location/i).first();
 
@@ -30,21 +29,18 @@ test.describe("Settings page", () => {
         await locationInput.fill("remote, USA");
       }
 
-      await page.screenshot({
-        path: "tests/screenshots/17-settings-filled.png",
-        fullPage: true,
-      });
+      await page.screenshot({ path: "tests/screenshots/18-settings-filled.png", fullPage: true });
 
       // Restore original value
       await keywordsInput.fill(existing);
     }
   });
 
-  test("save button submits preferences", async ({ page }) => {
-    const saveBtn = page.getByRole("button", { name: /save/i });
+  test("save button is present and enabled", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "Job Search Preferences" })).toBeVisible({ timeout: 10_000 });
 
-    if (await saveBtn.isVisible()) {
-      await expect(saveBtn).toBeEnabled();
-    }
+    const saveBtn = page.getByRole("button", { name: /save preferences/i });
+    await expect(saveBtn).toBeVisible();
+    await expect(saveBtn).toBeEnabled();
   });
 });

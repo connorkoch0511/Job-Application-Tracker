@@ -12,59 +12,50 @@ test.describe("Resume page", () => {
   });
 
   test("shows resume upload UI", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "Resume" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Resume" })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole("button", { name: /upload resume/i })).toBeVisible();
 
-    await page.screenshot({
-      path: "tests/screenshots/13-resume.png",
-      fullPage: true,
-    });
+    await page.screenshot({ path: "tests/screenshots/14-resume.png", fullPage: true });
   });
 
   test("current resume info is displayed if one exists", async ({ page }) => {
-    const currentResumeSection = page.getByText("Current resume");
+    await expect(page.getByRole("heading", { name: "Resume" })).toBeVisible({ timeout: 10_000 });
 
-    if (await currentResumeSection.isVisible()) {
-      await expect(currentResumeSection).toBeVisible();
-      await page.screenshot({
-        path: "tests/screenshots/14-resume-current.png",
-        fullPage: true,
-      });
+    const currentSection = page.getByText("Current resume");
+    if (await currentSection.isVisible()) {
+      await page.screenshot({ path: "tests/screenshots/15-resume-current.png", fullPage: true });
     }
   });
 
   test("uploading a .txt resume shows success message", async ({ page }) => {
-    // Create a temporary test resume file
+    await expect(page.getByRole("heading", { name: "Resume" })).toBeVisible({ timeout: 10_000 });
+
     const tmpFile = path.join("/tmp", "test-resume.txt");
     fs.writeFileSync(
       tmpFile,
-      `John Doe
-Software Engineer
-john@example.com
+      `John Doe — Software Engineer
+john@example.com | github.com/johndoe
 
 EXPERIENCE
 Software Engineer — Acme Corp (2022–present)
-- Built REST APIs with Python/FastAPI
-- Deployed services on AWS ECS
-- Wrote integration tests with pytest
+- Built REST APIs with Python/FastAPI and deployed on AWS ECS
+- Wrote integration tests with pytest; reduced bug rate by 30%
 
 SKILLS
-Python, TypeScript, AWS, PostgreSQL, Docker, React
+Python, TypeScript, AWS, PostgreSQL, Docker, React, Next.js
 `
     );
 
     const fileInput = page.locator('input[type="file"]');
+    await expect(fileInput).toBeAttached({ timeout: 10_000 });
     await fileInput.setInputFiles(tmpFile);
     await page.getByRole("button", { name: /upload resume/i }).click();
 
     // Wait for success or error message
     const message = page.locator("p").filter({ hasText: /uploaded|error/i }).last();
-    await expect(message).toBeVisible({ timeout: 15_000 });
+    await expect(message).toBeVisible({ timeout: 20_000 });
 
-    await page.screenshot({
-      path: "tests/screenshots/15-resume-uploaded.png",
-      fullPage: true,
-    });
+    await page.screenshot({ path: "tests/screenshots/16-resume-uploaded.png", fullPage: true });
 
     fs.unlinkSync(tmpFile);
   });

@@ -10,14 +10,22 @@ setup("authenticate", async ({ page }) => {
 
   if (!email || !password) {
     throw new Error(
-      "TEST_EMAIL and TEST_PASSWORD must be set in web/.env.test to run tests.\n" +
+      "TEST_EMAIL and TEST_PASSWORD must be set in web/.env.test\n" +
       "See web/.env.test.example for details."
     );
   }
 
+  // Screenshot the login page while unauthenticated
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: /job tracker/i })).toBeVisible();
+  await page.screenshot({ path: "tests/screenshots/01-login.png", fullPage: true });
 
+  // Screenshot the signup page while unauthenticated
+  await page.goto("/signup");
+  await page.screenshot({ path: "tests/screenshots/02-signup.png", fullPage: true });
+
+  // Log in
+  await page.goto("/login");
   await page.fill('input[type="email"]', email);
   await page.fill('input[type="password"]', password);
   await page.getByRole("button", { name: /^sign in$/i }).click();
@@ -28,7 +36,7 @@ setup("authenticate", async ({ page }) => {
   const errorAppeared = errorMsg.waitFor({ state: "visible", timeout: 5_000 }).then(async () => {
     const text = await errorMsg.textContent();
     throw new Error(
-      `Login failed: "${text}"\n\nCheck that TEST_EMAIL and TEST_PASSWORD in web/.env.test match a real Supabase account.`
+      `Login failed: "${text}"\n\nCheck TEST_EMAIL / TEST_PASSWORD in web/.env.test.`
     );
   });
 

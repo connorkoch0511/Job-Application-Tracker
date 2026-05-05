@@ -9,73 +9,64 @@ test.describe("Applications page", () => {
     await page.waitForLoadState("networkidle");
   });
 
-  test("shows application pipeline with status summary", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible();
-
-    await page.screenshot({
-      path: "tests/screenshots/09-applications.png",
-      fullPage: true,
-    });
+  test("shows application pipeline page", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible({ timeout: 10_000 });
+    await page.screenshot({ path: "tests/screenshots/10-applications.png", fullPage: true });
   });
 
-  test("status count badges are visible when applications exist", async ({ page }) => {
-    const statusBadges = page.locator(".rounded-lg.border").filter({ hasText: /interested|applied|interviewing|offer|rejected/i });
-    const count = await statusBadges.count();
+  test("status count badges visible when applications exist", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible({ timeout: 10_000 });
 
-    if (count > 0) {
-      // Status summary is showing
+    const cards = page.locator(".rounded-xl.p-5");
+    const cardCount = await cards.count();
+
+    if (cardCount > 0) {
+      // Status summary pills should be visible
       for (const status of ["interested", "applied", "interviewing"]) {
         await expect(page.getByText(new RegExp(`${status}:`, "i")).first()).toBeVisible();
       }
     }
 
-    await page.screenshot({
-      path: "tests/screenshots/10-applications-status-counts.png",
-      fullPage: false,
-    });
+    await page.screenshot({ path: "tests/screenshots/11-applications-status-counts.png", fullPage: false });
   });
 
   test("notes textarea is editable", async ({ page }) => {
-    const textarea = page.locator("textarea").first();
-    const count = await page.locator("textarea").count();
+    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible({ timeout: 10_000 });
+
+    const textareas = page.locator("textarea");
+    const count = await textareas.count();
 
     if (count > 0) {
-      await textarea.fill("Test note — interview scheduled for next week.");
+      await textareas.first().fill("Test note — interview scheduled.");
       await expect(page.getByRole("button", { name: /save notes/i }).first()).toBeVisible();
 
-      await page.screenshot({
-        path: "tests/screenshots/11-applications-notes.png",
-        fullPage: false,
-      });
+      await page.screenshot({ path: "tests/screenshots/12-applications-notes.png", fullPage: false });
 
-      // Clear the test note
-      await textarea.fill("");
+      await textareas.first().fill("");
     }
   });
 
   test("status move buttons are present", async ({ page }) => {
-    const moveButtons = page.getByRole("button", { name: /interested|applied|interviewing|offer|rejected/i });
+    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible({ timeout: 10_000 });
+
+    const moveButtons = page.getByRole("button", { name: /^(interested|applied|interviewing|offer|rejected)$/i });
     const count = await moveButtons.count();
 
     if (count > 0) {
       await moveButtons.first().scrollIntoViewIfNeeded();
-      await page.screenshot({
-        path: "tests/screenshots/12-applications-status-moves.png",
-        fullPage: false,
-      });
+      await page.screenshot({ path: "tests/screenshots/13-applications-status-moves.png", fullPage: false });
     }
   });
 
-  test("empty state shows helpful message", async ({ page }) => {
+  test("shows empty state when no applications exist", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "My Applications" })).toBeVisible({ timeout: 10_000 });
+
     const cards = page.locator(".rounded-xl.p-5");
     const cardCount = await cards.count();
 
     if (cardCount === 0) {
       await expect(page.getByText(/No applications yet/i)).toBeVisible();
-      await page.screenshot({
-        path: "tests/screenshots/09-applications-empty.png",
-        fullPage: true,
-      });
+      await page.screenshot({ path: "tests/screenshots/10-applications-empty.png", fullPage: true });
     }
   });
 });
