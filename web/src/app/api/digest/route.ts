@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
   // Group top 10 per user
   const byUser: Record<string, ScoreRow[]> = {};
-  for (const s of scores as ScoreRow[]) {
+  for (const s of scores as unknown as ScoreRow[]) {
     if (!byUser[s.user_id]) byUser[s.user_id] = [];
     if (byUser[s.user_id].length < 10) byUser[s.user_id].push(s);
   }
