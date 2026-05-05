@@ -23,14 +23,23 @@ def run():
 
     print(f"Found {len(old_ids)} jobs older than {STALE_DAYS} days.")
 
-    # Preserve any that have applications so the user doesn't lose their history
+    # Protect jobs that have applications OR scores — only delete truly untouched jobs
     apps_result = (
         client.table("applications")
         .select("job_id")
         .in_("job_id", old_ids)
         .execute()
     )
-    protected = {r["job_id"] for r in apps_result.data}
+    scores_result = (
+        client.table("user_job_scores")
+        .select("job_id")
+        .in_("job_id", old_ids)
+        .execute()
+    )
+    protected = (
+        {r["job_id"] for r in apps_result.data}
+        | {r["job_id"] for r in scores_result.data}
+    )
     to_delete = [id_ for id_ in old_ids if id_ not in protected]
 
     if not to_delete:
@@ -43,7 +52,7 @@ def run():
         client.table("jobs").delete().in_("id", batch).execute()
         deleted += len(batch)
 
-    print(f"Deleted {deleted} stale jobs. Kept {len(protected)} with applications.")
+    print(f"Deleted {deleted} stale jobs. Kept {len(protected)} with scores or applications.")
 
 
 if __name__ == "__main__":
