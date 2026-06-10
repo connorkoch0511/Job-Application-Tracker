@@ -1,7 +1,6 @@
 import os
-from datetime import datetime, timezone
+import psycopg
 from dotenv import load_dotenv
-from supabase import create_client
 
 from remoteok import fetch_jobs as fetch_remoteok
 from remotive import fetch_jobs as fetch_remotive
@@ -10,8 +9,10 @@ from linkedin_public import fetch_jobs as fetch_linkedin
 
 load_dotenv(override=True)
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
+
+# Columns the scrapers provide; mirrors the jobs table (scraped_at is set to now()).
+JOB_COLS = ["source", "external_id", "title", "company", "location", "description", "url", "posted_at"]
 
 # Broad sources — no search terms needed, fetch everything
 BROAD_SOURCES = [
@@ -21,22 +22,17 @@ BROAD_SOURCES = [
 ]
 
 
-def get_search_combos(client) -> list[tuple[str, str]]:
+def get_search_combos(conn) -> list[tuple[str, str]]:
     """
     Build unique (keyword, location) pairs from all users' preferences.
     Falls back to env vars if no preferences are set.
     """
-    prefs = (
-        client.table("user_preferences")
-        .select("keywords, location")
-        .execute()
-        .data
-    )
+    rows = conn.execute("select keywords, location from user_preferences").fetchall()
 
     combos: set[tuple[str, str]] = set()
-    for pref in prefs:
-        keywords = [k.strip() for k in (pref.get("keywords") or "").split(",") if k.strip()]
-        locations = [l.strip() for l in (pref.get("location") or "").split(",") if l.strip()]
+    for keywords_raw, location_raw in rows:
+        keywords = [k.strip() for k in (keywords_raw or "").split(",") if k.strip()]
+        locations = [l.strip() for l in (location_raw or "").split(",") if l.strip()]
         if not locations:
             locations = [""]
         for kw in keywords:
@@ -53,55 +49,56 @@ def get_search_combos(client) -> list[tuple[str, str]]:
     return list(combos)
 
 
-def upsert_jobs(client, jobs: list[dict], source_name: str) -> int:
+INSERT_SQL = (
+    f"insert into jobs ({', '.join(JOB_COLS)}, scraped_at) "
+    f"values ({', '.join(['%s'] * len(JOB_COLS))}, now()) "
+    "on conflict (source, external_id) do nothing returning id"
+)
+
+
+def upsert_jobs(conn, jobs: list[dict], source_name: str) -> int:
     new = 0
     for job in jobs:
         if not job.get("external_id") or not job.get("title") or not job.get("url"):
             continue
         try:
-            result = (
-                client.table("jobs")
-                .upsert(
-                    {**job, "scraped_at": datetime.now(timezone.utc).isoformat()},
-                    on_conflict="source,external_id",
-                    ignore_duplicates=True,
-                )
-                .execute()
-            )
-            if result.data:
+            row = conn.execute(INSERT_SQL, [job.get(c) for c in JOB_COLS]).fetchone()
+            if row:
                 new += 1
         except Exception as e:
+            conn.rollback()
             print(f"  Error upserting '{job.get('title')}': {e}")
+        else:
+            conn.commit()
     return new
 
 
 def run():
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    with psycopg.connect(DATABASE_URL) as conn:
+        # Broad sources
+        for name, fetch_fn in BROAD_SOURCES:
+            print(f"\nScraping {name}...")
+            try:
+                jobs = fetch_fn()
+                print(f"  Fetched {len(jobs)} jobs")
+                new = upsert_jobs(conn, jobs, name)
+                print(f"  {new} new jobs added")
+            except Exception as e:
+                print(f"  Failed: {e}")
 
-    # Broad sources
-    for name, fetch_fn in BROAD_SOURCES:
-        print(f"\nScraping {name}...")
+        # LinkedIn — per user preferences
+        print("\nBuilding search parameters from user preferences...")
+        combos = get_search_combos(conn)
+        print(f"  {len(combos)} unique keyword/location combo(s): {combos}")
+
+        print("\nScraping LinkedIn (public)...")
         try:
-            jobs = fetch_fn()
+            jobs = fetch_linkedin(combos)
             print(f"  Fetched {len(jobs)} jobs")
-            new = upsert_jobs(client, jobs, name)
+            new = upsert_jobs(conn, jobs, "LinkedIn")
             print(f"  {new} new jobs added")
         except Exception as e:
             print(f"  Failed: {e}")
-
-    # LinkedIn — per user preferences
-    print("\nBuilding search parameters from user preferences...")
-    combos = get_search_combos(client)
-    print(f"  {len(combos)} unique keyword/location combo(s): {combos}")
-
-    print("\nScraping LinkedIn (public)...")
-    try:
-        jobs = fetch_linkedin(combos)
-        print(f"  Fetched {len(jobs)} jobs")
-        new = upsert_jobs(client, jobs, "LinkedIn")
-        print(f"  {new} new jobs added")
-    except Exception as e:
-        print(f"  Failed: {e}")
 
 
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase-server";
+import { auth } from "@clerk/nextjs/server";
+import { sql } from "@/lib/db";
 import Groq from "groq-sdk";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -63,53 +64,62 @@ async function scoreJob(resume: string, job: { title: string; company: string; d
   return JSON.parse(response.choices[0].message.content ?? "{}");
 }
 
+type JobRow = { id: string; title: string; company: string; description: string | null };
+
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: resumeData } = await supabase
-    .from("resumes")
-    .select("content")
-    .eq("user_id", user.id)
-    .order("uploaded_at", { ascending: false })
-    .limit(1);
+  const resumeRows = (await sql`
+    select content from resumes
+    where user_id = ${userId}
+    order by uploaded_at desc
+    limit 1
+  `) as { content: string }[];
 
-  if (!resumeData?.length) {
+  if (!resumeRows.length) {
     return NextResponse.json({ error: "No resume found. Upload one first." }, { status: 400 });
   }
-  const resume = resumeData[0].content;
+  const resume = resumeRows[0].content;
 
   const { jobIds } = await req.json();
 
   // jobIds = array of specific IDs to score; if omitted, score all
-  const query = supabase.from("jobs").select("id, title, company, description");
-  const { data: jobs } = jobIds?.length
-    ? await query.in("id", jobIds)
-    : await query;
+  const jobs = (jobIds?.length
+    ? await sql`select id, title, company, description from jobs where id = any(${jobIds}::uuid[])`
+    : await sql`select id, title, company, description from jobs`) as JobRow[];
 
-  if (!jobs?.length) return NextResponse.json({ error: "No jobs found" }, { status: 404 });
+  if (!jobs.length) return NextResponse.json({ error: "No jobs found" }, { status: 404 });
 
   const results = [];
   for (const job of jobs) {
     try {
       const scored = await scoreJob(resume, job);
-      await supabase.from("user_job_scores").upsert({
-        user_id: user.id,
-        job_id: job.id,
-        score: parseFloat(scored.score),
-        score_reasoning: scored.reasoning ?? "",
-        why_apply: scored.why_apply ?? "",
-        gaps: scored.gaps ?? "",
-        keyword_matches: scored.keyword_matches ?? "",
-        keyword_gaps: scored.keyword_gaps ?? "",
-        experience_fit: scored.experience_fit ?? "",
-        title_match: scored.title_match ?? "",
-        resume_tips: scored.resume_tips ?? "",
-        salary: scored.salary ?? "",
-        career_growth: scored.career_growth ?? "",
-        scored_at: new Date().toISOString(),
-      }, { onConflict: "user_id,job_id" });
+      await sql`
+        insert into user_job_scores (
+          user_id, job_id, score, score_reasoning, why_apply, gaps,
+          keyword_matches, keyword_gaps, experience_fit, title_match,
+          resume_tips, salary, career_growth, scored_at
+        ) values (
+          ${userId}, ${job.id}, ${parseFloat(scored.score)}, ${scored.reasoning ?? ""},
+          ${scored.why_apply ?? ""}, ${scored.gaps ?? ""}, ${scored.keyword_matches ?? ""},
+          ${scored.keyword_gaps ?? ""}, ${scored.experience_fit ?? ""}, ${scored.title_match ?? ""},
+          ${scored.resume_tips ?? ""}, ${scored.salary ?? ""}, ${scored.career_growth ?? ""}, now()
+        )
+        on conflict (user_id, job_id) do update set
+          score = excluded.score,
+          score_reasoning = excluded.score_reasoning,
+          why_apply = excluded.why_apply,
+          gaps = excluded.gaps,
+          keyword_matches = excluded.keyword_matches,
+          keyword_gaps = excluded.keyword_gaps,
+          experience_fit = excluded.experience_fit,
+          title_match = excluded.title_match,
+          resume_tips = excluded.resume_tips,
+          salary = excluded.salary,
+          career_growth = excluded.career_growth,
+          scored_at = excluded.scored_at
+      `;
       results.push({ id: job.id, score: scored.score });
     } catch (e) {
       results.push({ id: job.id, error: String(e) });

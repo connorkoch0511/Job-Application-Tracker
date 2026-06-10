@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase-server";
+import { auth } from "@clerk/nextjs/server";
+import { sql } from "@/lib/db";
+
+// Returns the user's current (most recent) resume metadata.
+export async function GET() {
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rows = (await sql`
+    select filename, uploaded_at from resumes
+    where user_id = ${userId}
+    order by uploaded_at desc
+    limit 1
+  `) as { filename: string; uploaded_at: string }[];
+
+  return NextResponse.json(rows[0] ?? null);
+}
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = await auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const formData = await req.formData();
   const file = formData.get("file") as File | null;
@@ -39,13 +54,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Resume appears to be empty" }, { status: 422 });
   }
 
-  const { error } = await supabase.from("resumes").insert({
-    filename: file.name,
-    content: content.trim(),
-    user_id: user.id,
-  });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    await sql`
+      insert into resumes (user_id, filename, content)
+      values (${userId}, ${file.name}, ${content.trim()})
+    `;
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
+import { dark } from "@clerk/themes";
 import "./globals.css";
 import NavBar from "@/components/NavBar";
 
@@ -12,11 +14,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${geist.className} bg-gray-950 text-gray-100 min-h-screen`}>
-        <NavBar />
-        <main className="max-w-6xl mx-auto px-6 py-8">{children}</main>
-      </body>
-    </html>
+    <ClerkProvider appearance={{ baseTheme: dark }} afterSignOutUrl="/sign-in">
+      <html lang="en">
+        <body className={`${geist.className} bg-gray-950 text-gray-100 min-h-screen`}>
+          <NavBar />
+          <main className="max-w-6xl mx-auto px-6 py-8">{children}</main>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

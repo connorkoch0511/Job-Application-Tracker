@@ -1,16 +1,14 @@
 import os
-import re
 import json
 import time
-from datetime import datetime, timezone
 from dotenv import load_dotenv
 from groq import Groq
-from supabase import create_client
+import psycopg
+from psycopg.rows import dict_row
 
 load_dotenv(override=True)
 
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+DATABASE_URL = os.environ["DATABASE_URL"]
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 
 client_groq = Groq(api_key=GROQ_API_KEY)
@@ -94,29 +92,45 @@ def score_job(resume: str, job: dict) -> dict:
     }
 
 
+UPSERT_SQL = """
+insert into user_job_scores (
+  user_id, job_id, score, score_reasoning, why_apply, gaps,
+  keyword_matches, keyword_gaps, experience_fit, title_match,
+  resume_tips, salary, career_growth, scored_at
+) values (
+  %(user_id)s, %(job_id)s, %(score)s, %(score_reasoning)s, %(why_apply)s, %(gaps)s,
+  %(keyword_matches)s, %(keyword_gaps)s, %(experience_fit)s, %(title_match)s,
+  %(resume_tips)s, %(salary)s, %(career_growth)s, now()
+)
+on conflict (user_id, job_id) do update set
+  score = excluded.score,
+  score_reasoning = excluded.score_reasoning,
+  why_apply = excluded.why_apply,
+  gaps = excluded.gaps,
+  keyword_matches = excluded.keyword_matches,
+  keyword_gaps = excluded.keyword_gaps,
+  experience_fit = excluded.experience_fit,
+  title_match = excluded.title_match,
+  resume_tips = excluded.resume_tips,
+  salary = excluded.salary,
+  career_growth = excluded.career_growth,
+  scored_at = excluded.scored_at
+"""
+
+
 def run():
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
 
-    # Get all users who have uploaded a resume (exclude rows with no user_id)
-    resumes_result = (
-        client.table("resumes")
-        .select("user_id, content, uploaded_at")
-        .not_.is_("user_id", "null")
-        .order("uploaded_at", desc=True)
-        .execute()
-    )
-
-    # Deduplicate: keep latest resume per user; guard against non-UUID values
-    UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
-    seen_users: set = set()
-    user_resumes: list = []
-    for row in resumes_result.data:
-        uid = row["user_id"]
-        if not uid or not UUID_RE.match(str(uid)):
-            continue
-        if uid not in seen_users:
-            seen_users.add(uid)
-            user_resumes.append(row)
+    # Get all users who have uploaded a resume — latest resume per user.
+    # distinct on keeps the first row per user_id given the ordering below.
+    user_resumes = conn.execute(
+        """
+        select distinct on (user_id) user_id, content, uploaded_at
+        from resumes
+        where user_id is not null
+        order by user_id, uploaded_at desc
+        """
+    ).fetchall()
 
     if not user_resumes:
         print("No resumes found. Users must upload one via the web UI first.")
@@ -125,8 +139,7 @@ def run():
     print(f"Found {len(user_resumes)} user(s) with resumes.")
 
     # Get all jobs
-    jobs_result = client.table("jobs").select("id, title, company, description").execute()
-    all_jobs = jobs_result.data
+    all_jobs = conn.execute("select id, title, company, description from jobs").fetchall()
     print(f"Total jobs in database: {len(all_jobs)}")
 
     for user_row in user_resumes:
@@ -136,28 +149,23 @@ def run():
         print(f"\nProcessing user {user_id}")
 
         # Load this user's keyword preferences
-        prefs_result = (
-            client.table("user_preferences")
-            .select("keywords")
-            .eq("user_id", user_id)
-            .limit(1)
-            .execute()
-        )
-        keywords_raw = (prefs_result.data[0].get("keywords", "") if prefs_result.data else "")
+        prefs_row = conn.execute(
+            "select keywords from user_preferences where user_id = %s limit 1",
+            [user_id],
+        ).fetchone()
+        keywords_raw = (prefs_row["keywords"] if prefs_row else "") or ""
         keywords = [k.strip().lower() for k in keywords_raw.split(",") if k.strip()]
 
         try:
-            scored_result = (
-                client.table("user_job_scores")
-                .select("job_id")
-                .eq("user_id", user_id)
-                .execute()
-            )
+            scored_rows = conn.execute(
+                "select job_id from user_job_scores where user_id = %s",
+                [user_id],
+            ).fetchall()
         except Exception as e:
             print(f"  Skipping: failed to query scores — {e}")
             continue
 
-        scored_job_ids = {row["job_id"] for row in scored_result.data}
+        scored_job_ids = {row["job_id"] for row in scored_rows}
 
         # Filter to unscored jobs; if user has keywords, score jobs that match
         # in the title, in the description, or have no description (LinkedIn jobs
@@ -181,22 +189,7 @@ def run():
         for i, job in enumerate(unscored):
             try:
                 result = score_job(resume_text, job)
-                client.table("user_job_scores").upsert({
-                    "user_id": user_id,
-                    "job_id": job["id"],
-                    "score": result["score"],
-                    "score_reasoning": result["score_reasoning"],
-                    "why_apply": result["why_apply"],
-                    "gaps": result["gaps"],
-                    "keyword_matches": result["keyword_matches"],
-                    "keyword_gaps": result["keyword_gaps"],
-                    "experience_fit": result["experience_fit"],
-                    "title_match": result["title_match"],
-                    "resume_tips": result["resume_tips"],
-                    "salary": result["salary"],
-                    "career_growth": result["career_growth"],
-                    "scored_at": datetime.now(timezone.utc).isoformat(),
-                }).execute()
+                conn.execute(UPSERT_SQL, {"user_id": user_id, "job_id": job["id"], **result})
                 print(f"  [{result['score']:.1f}] {job['title']} @ {job['company']}")
             except Exception as e:
                 print(f"  Error scoring {job['title']}: {e}")

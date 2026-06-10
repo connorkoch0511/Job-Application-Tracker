@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { supabase } from "@/lib/supabase";
 
 export default function ResumePage() {
   const [current, setCurrent] = useState<{ filename: string; uploaded_at: string } | null>(null);
@@ -10,12 +9,9 @@ export default function ResumePage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadCurrent() {
-    const { data } = await supabase
-      .from("resumes")
-      .select("filename, uploaded_at")
-      .order("uploaded_at", { ascending: false })
-      .limit(1);
-    setCurrent(data?.[0] ?? null);
+    const res = await fetch("/api/resume");
+    const data = res.ok ? await res.json() : null;
+    setCurrent(data ?? null);
   }
 
   useEffect(() => { loadCurrent(); }, []);

@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase-browser";
-import { useRouter, usePathname } from "next/navigation";
+import { useUser, UserButton } from "@clerk/nextjs";
+import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Jobs" },
@@ -12,27 +11,13 @@ const LINKS = [
 ];
 
 export default function NavBar() {
-  const [email, setEmail] = useState<string | null>(null);
-  const supabase = createClient();
-  const router = useRouter();
+  const { isSignedIn, user } = useUser();
   const pathname = usePathname();
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
-  async function logout() {
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  }
-
   // Don't show nav on auth pages
-  if (pathname === "/login" || pathname === "/signup" || pathname === "/confirm") return null;
+  if (pathname.startsWith("/sign-in") || pathname.startsWith("/sign-up")) return null;
+
+  const email = user?.primaryEmailAddress?.emailAddress ?? null;
 
   return (
     <nav className="border-b border-gray-800 px-6 py-4">
@@ -48,13 +33,10 @@ export default function NavBar() {
             ))}
           </div>
         </div>
-        {email && (
+        {isSignedIn && (
           <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-500 hidden sm:block">{email}</span>
-            <button onClick={logout}
-              className="text-sm text-gray-400 hover:text-white transition-colors">
-              Sign out
-            </button>
+            {email && <span className="text-xs text-gray-500 hidden sm:block">{email}</span>}
+            <UserButton afterSignOutUrl="/sign-in" />
           </div>
         )}
       </div>

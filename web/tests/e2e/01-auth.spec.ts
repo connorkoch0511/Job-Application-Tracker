@@ -12,14 +12,14 @@ test.describe("Authentication", () => {
     await page.screenshot({ path: "tests/screenshots/03-jobs-authenticated.png", fullPage: false });
   });
 
-  test("unauthenticated visit to protected route redirects to login", async ({ browser }) => {
+  test("unauthenticated visit to protected route redirects to sign-in", async ({ browser }) => {
     // Open a fresh context with no stored session
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 
     await page.goto(`${baseURL}/applications`);
-    await expect(page.getByRole("heading", { name: /job tracker/i })).toBeVisible();
+    await expect(page).toHaveURL(/\/sign-in/, { timeout: 15_000 });
     await ctx.close();
   });
 });

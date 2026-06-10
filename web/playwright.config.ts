@@ -1,7 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 import * as dotenv from "dotenv";
 
-dotenv.config({ path: ".env.test" });
+// Tests authenticate through Clerk, so they reuse the app's real keys from
+// .env.local (plus E2E_CLERK_USER_* for the test user's credentials).
+dotenv.config({ path: ".env.local" });
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -35,7 +37,9 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev",
-    url: "http://localhost:3000",
+    // Probe a public route — every protected route 307-redirects into Clerk's
+    // external handshake, which the readiness check can't resolve.
+    url: "http://localhost:3000/api/health",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

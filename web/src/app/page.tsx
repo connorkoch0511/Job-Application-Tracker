@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { createClient } from "@/lib/supabase-browser";
 
 const SOURCE_LABELS: Record<string, string> = {
   remoteok: "RemoteOK",
@@ -91,7 +90,6 @@ export default function JobsPage() {
   const [scoringVisible, setScoringVisible] = useState(false);
   const [rescoring, setRescoring] = useState(false);
   const [scoreMsg, setScoreMsg] = useState("");
-  const supabase = createClient();
 
   useEffect(() => {
     fetch("/api/preferences")
@@ -104,14 +102,12 @@ export default function JobsPage() {
   }, []);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from("jobs")
-      .select("id, source, title, company, location, url, posted_at, user_job_scores(score, score_reasoning, why_apply, gaps, keyword_matches, keyword_gaps, experience_fit, title_match, resume_tips, salary, career_growth)")
-      .order("posted_at", { ascending: false });
+    const res = await fetch("/api/jobs");
+    const { jobs: data } = res.ok ? await res.json() : { jobs: [] };
 
-    const sorted = (data ?? []).sort((a, b) => {
-      const sa = (a as Job).user_job_scores?.[0]?.score ?? -1;
-      const sb = (b as Job).user_job_scores?.[0]?.score ?? -1;
+    const sorted = (data ?? []).sort((a: Job, b: Job) => {
+      const sa = a.user_job_scores?.[0]?.score ?? -1;
+      const sb = b.user_job_scores?.[0]?.score ?? -1;
       return sb - sa;
     });
     setJobs(sorted as Job[]);
@@ -197,12 +193,13 @@ export default function JobsPage() {
   }
 
   async function markApplied(jobId: string) {
-    const { data: { user } } = await supabase.auth.getUser();
-    await supabase.from("applications").upsert(
-      { job_id: jobId, user_id: user!.id, status: "applied", applied_at: new Date().toISOString() },
-      { onConflict: "job_id" }
-    );
-    alert("Marked as applied!");
+    const res = await fetch("/api/applications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId }),
+    });
+    if (res.ok) alert("Marked as applied!");
+    else alert("Failed to mark as applied.");
   }
 
   const scored = jobs.filter((j) => j.user_job_scores?.[0]?.score != null);

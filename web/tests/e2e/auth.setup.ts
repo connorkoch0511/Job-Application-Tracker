@@ -1,46 +1,46 @@
-import { test as setup, expect } from "@playwright/test";
+import { test as setup } from "@playwright/test";
+import { clerk, clerkSetup, setupClerkTestingToken } from "@clerk/testing/playwright";
 import * as fs from "fs";
 import * as path from "path";
 
 const authFile = "tests/.auth/user.json";
 
 setup("authenticate", async ({ page }) => {
-  const email = process.env.TEST_EMAIL;
-  const password = process.env.TEST_PASSWORD;
+  const identifier = process.env.E2E_CLERK_USER_IDENTIFIER;
+  const password = process.env.E2E_CLERK_USER_PASSWORD;
 
-  if (!email || !password) {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || !process.env.CLERK_SECRET_KEY) {
     throw new Error(
-      "TEST_EMAIL and TEST_PASSWORD must be set in web/.env.test\n" +
-      "See web/.env.test.example for details."
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY must be set in web/.env.local"
+    );
+  }
+  if (!identifier || !password) {
+    throw new Error(
+      "E2E_CLERK_USER_IDENTIFIER and E2E_CLERK_USER_PASSWORD must be set in web/.env.local — " +
+        "create a test user in the Clerk dashboard and set these to its credentials."
     );
   }
 
-  // Screenshot the login page while unauthenticated
-  await page.goto("/login");
-  await expect(page.getByRole("heading", { name: /job tracker/i })).toBeVisible();
+  // Fetch a Testing Token so Clerk bypasses bot detection during tests.
+  await clerkSetup();
+  await setupClerkTestingToken({ page });
+
+  // Screenshot the sign-in / sign-up screens while unauthenticated (showcase).
+  await page.goto("/sign-in");
+  await page.waitForLoadState("networkidle");
   await page.screenshot({ path: "tests/screenshots/01-login.png", fullPage: true });
 
-  // Screenshot the signup page while unauthenticated
-  await page.goto("/signup");
+  await page.goto("/sign-up");
+  await page.waitForLoadState("networkidle");
   await page.screenshot({ path: "tests/screenshots/02-signup.png", fullPage: true });
 
-  // Log in
-  await page.goto("/login");
-  await page.fill('input[type="email"]', email);
-  await page.fill('input[type="password"]', password);
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-
-  // Detect auth errors early with a helpful message
-  const errorMsg = page.locator("p.text-red-400");
-  const redirected = page.waitForURL("/", { timeout: 15_000 });
-  const errorAppeared = errorMsg.waitFor({ state: "visible", timeout: 5_000 }).then(async () => {
-    const text = await errorMsg.textContent();
-    throw new Error(
-      `Login failed: "${text}"\n\nCheck TEST_EMAIL / TEST_PASSWORD in web/.env.test.`
-    );
+  // Sign in via Clerk's testing helper (no brittle UI scripting).
+  await page.goto("/sign-in");
+  await clerk.signIn({
+    page,
+    signInParams: { strategy: "password", identifier, password },
   });
-
-  await Promise.race([redirected, errorAppeared]);
+  await page.goto("/");
 
   fs.mkdirSync(path.dirname(authFile), { recursive: true });
   await page.context().storageState({ path: authFile });

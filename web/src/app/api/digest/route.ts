@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { clerkClient } from "@clerk/nextjs/server";
+import { sql } from "@/lib/db";
 import nodemailer from "nodemailer";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
-);
 
 function isAuthorized(req: NextRequest): boolean {
   const authHeader = req.headers.get("authorization");
@@ -17,7 +13,10 @@ type ScoreRow = {
   score: number;
   score_reasoning: string | null;
   why_apply: string | null;
-  jobs: { title: string; company: string; location: string | null; url: string } | null;
+  title: string;
+  company: string;
+  location: string | null;
+  url: string;
 };
 
 export async function GET(req: NextRequest) {
@@ -28,23 +27,27 @@ export async function GET(req: NextRequest) {
   const since = new Date(Date.now() - 86_400 * 1000).toISOString();
 
   // Top scored jobs from the last 24 hours, score >= 60
-  const { data: scores } = await supabase
-    .from("user_job_scores")
-    .select("user_id, score, score_reasoning, why_apply, jobs(title, company, location, url)")
-    .gte("scored_at", since)
-    .gte("score", 60)
-    .order("score", { ascending: false });
+  const scores = (await sql`
+    select s.user_id, s.score::float as score, s.score_reasoning, s.why_apply,
+           j.title, j.company, j.location, j.url
+    from user_job_scores s
+    join jobs j on j.id = s.job_id
+    where s.scored_at >= ${since} and s.score >= 60
+    order by s.score desc
+  `) as ScoreRow[];
 
-  if (!scores?.length) {
+  if (!scores.length) {
     return NextResponse.json({ message: "No new high-scoring jobs to send" });
   }
 
   // Group top 10 per user
   const byUser: Record<string, ScoreRow[]> = {};
-  for (const s of scores as unknown as ScoreRow[]) {
+  for (const s of scores) {
     if (!byUser[s.user_id]) byUser[s.user_id] = [];
     if (byUser[s.user_id].length < 10) byUser[s.user_id].push(s);
   }
+
+  const clerk = await clerkClient();
 
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -56,12 +59,13 @@ export async function GET(req: NextRequest) {
   let sent = 0;
   for (const [userId, userScores] of Object.entries(byUser)) {
     try {
-      const { data: { user } } = await supabase.auth.admin.getUserById(userId);
-      if (!user?.email) continue;
+      const user = await clerk.users.getUser(userId);
+      const email = user.primaryEmailAddress?.emailAddress;
+      if (!email) continue;
 
       await transporter.sendMail({
         from: process.env.SMTP_FROM,
-        to: user.email,
+        to: email,
         subject: `Job Digest — ${new Date().toLocaleDateString("en-US", {
           weekday: "long",
           month: "long",
@@ -80,13 +84,12 @@ export async function GET(req: NextRequest) {
 
 function buildEmail(scores: ScoreRow[]) {
   const rows = scores
-    .filter((s) => s.jobs)
     .map(
       (s) => `
       <tr>
         <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb">
-          <a href="${s.jobs!.url}" style="font-weight:600;color:#4f46e5;text-decoration:none">${s.jobs!.title}</a><br/>
-          <span style="color:#6b7280;font-size:13px">${s.jobs!.company}${s.jobs!.location ? ` · ${s.jobs!.location}` : ""}</span>
+          <a href="${s.url}" style="font-weight:600;color:#4f46e5;text-decoration:none">${s.title}</a><br/>
+          <span style="color:#6b7280;font-size:13px">${s.company}${s.location ? ` · ${s.location}` : ""}</span>
           ${s.why_apply ? `<br/><span style="color:#9ca3af;font-size:12px;margin-top:4px;display:block">${s.why_apply}</span>` : ""}
         </td>
         <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:24px;font-weight:700;color:${s.score >= 80 ? "#22c55e" : "#eab308"}">

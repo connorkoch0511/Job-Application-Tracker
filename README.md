@@ -37,12 +37,22 @@ Run `npm test` inside `web/` to generate these (see [Testing](#testing)):
 |---|---|
 | Frontend | Next.js 16 (App Router), TypeScript, Tailwind CSS |
 | Backend | Next.js API Routes (serverless) |
-| Database | Supabase (PostgreSQL + Auth + RLS) |
+| Database | Neon (serverless PostgreSQL) via `@neondatabase/serverless` |
+| Auth | Clerk — drop-in Next.js auth, no idle pausing |
 | LLM | Groq API — `llama-3.1-8b-instant` |
 | Scraping | Python — RemoteOK, Remotive, The Muse, LinkedIn public API |
 | Cron (scrape + score + cleanup) | GitHub Actions — daily at 9am UTC |
 | Testing | Playwright (E2E + screenshot showcase) |
 | Deployment | Vercel |
+
+> **Why Neon + Clerk?** Supabase pauses free-tier projects after a week of
+> inactivity (the database hostname stops resolving), which a keepalive cron
+> can't reliably fix. Neon's free tier scales to zero but auto-wakes on the
+> next query, and Clerk never pauses — so the app stays live with no babysitting.
+> Because Neon has no Row Level Security layer, per-user data isolation is
+> enforced in application code: every query is scoped by the Clerk `userId`,
+> and the browser never talks to the database directly — all reads/writes go
+> through Clerk-authenticated API routes.
 
 ## How It Works
 
@@ -82,8 +92,9 @@ Scoring uses a structured prompt that evaluates 7 dimensions and responds with a
 ├── scorer/
 │   ├── main.py                # scores unscored jobs for all users with resumes
 │   └── requirements.txt
-├── supabase/
-│   └── migrations/            # SQL migration files (run in order)
+├── db/
+│   └── migrations/
+│       └── 001_schema.sql     # full Neon schema (run once)
 └── web/                       # Next.js app
     ├── src/
     │   ├── app/
@@ -91,17 +102,19 @@ Scoring uses a structured prompt that evaluates 7 dimensions and responds with a
     │   │   ├── applications/      # application pipeline with notes
     │   │   ├── resume/            # resume upload
     │   │   ├── settings/          # keyword/location preferences
-    │   │   ├── login/ signup/     # auth pages
+    │   │   ├── sign-in/ sign-up/  # Clerk auth pages (catch-all routes)
     │   │   └── api/
+    │   │       ├── jobs/          # list jobs + the user's scores
+    │   │       ├── applications/  # pipeline CRUD (GET/POST/PATCH)
     │   │       ├── score/         # LLM scoring endpoint
-    │   │       ├── resume/        # resume upload + PDF extraction
+    │   │       ├── resume/        # resume upload + PDF extraction, current resume
     │   │       ├── preferences/   # user preferences CRUD
-    │   │       └── digest/        # per-user email digest endpoint
+    │   │       ├── digest/        # per-user email digest endpoint
+    │   │       └── health/        # public liveness probe
     │   ├── components/NavBar.tsx
     │   ├── lib/
-    │   │   ├── supabase-browser.ts
-    │   │   └── supabase-server.ts
-    │   └── middleware.ts          # auth route protection
+    │   │   └── db.ts              # Neon serverless SQL client
+    │   └── middleware.ts          # Clerk auth route protection
     ├── tests/
     │   ├── e2e/                   # Playwright test specs
     │   └── screenshots/           # committed screenshots from test runs
@@ -114,52 +127,30 @@ Scoring uses a structured prompt that evaluates 7 dimensions and responds with a
 
 - Node.js 20+
 - Python 3.11+
-- A [Supabase](https://supabase.com) project
+- A [Neon](https://neon.tech) Postgres database (free tier)
+- A [Clerk](https://clerk.com) application (free tier)
 - A [Groq](https://console.groq.com) API key (free tier)
 
 ### 1. Database
 
-Run the SQL migration files in order in your Supabase SQL Editor:
+Create a Neon project and run the schema once against it:
 
-```
-supabase/migrations/001_initial_schema.sql
-supabase/migrations/002_add_scoring_fields.sql
-supabase/migrations/003_user_preferences.sql
-supabase/migrations/004_score_details.sql
-supabase/migrations/005_score_extras.sql
+```bash
+psql "$DATABASE_URL" -f db/migrations/001_schema.sql
 ```
 
-Then run this SQL to enable Row Level Security:
+`DATABASE_URL` is the connection string from the Neon dashboard (use the
+pooled connection string). The schema creates the `resumes`, `jobs`,
+`applications`, `user_preferences`, and `user_job_scores` tables. There is no
+Row Level Security — ownership is enforced in application code by scoping every
+query to the Clerk `userId`.
 
-```sql
-ALTER TABLE resumes ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
-ALTER TABLE applications ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);
+### 2. Auth
 
-CREATE TABLE IF NOT EXISTS user_job_scores (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  job_id UUID NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-  score NUMERIC(5,2),
-  score_reasoning TEXT, why_apply TEXT, gaps TEXT,
-  keyword_matches TEXT, keyword_gaps TEXT,
-  experience_fit TEXT, title_match TEXT,
-  resume_tips TEXT, salary TEXT, career_growth TEXT,
-  scored_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(user_id, job_id)
-);
+Create a Clerk application (enable Email/Password) and copy its **Publishable
+key** and **Secret key** from the dashboard into `web/.env.local` (below).
 
-ALTER TABLE resumes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_job_scores ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "users see own resumes" ON resumes FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users see own applications" ON applications FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users see own scores" ON user_job_scores FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "all users read jobs" ON jobs FOR SELECT USING (true);
-```
-
-### 2. Web App
+### 3. Web App
 
 ```bash
 cd web
@@ -170,9 +161,11 @@ npm run dev
 Create `web/.env.local`:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-SUPABASE_SERVICE_KEY=your-service-role-key
+DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require
+
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
 GROQ_API_KEY=gsk_...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
@@ -185,7 +178,7 @@ SMTP_FROM=you@gmail.com
 CRON_SECRET=a-long-random-secret
 ```
 
-### 3. Python Scraper & Scorer
+### 4. Python Scraper & Scorer
 
 ```bash
 pip install -r scraper/requirements.txt
@@ -194,8 +187,7 @@ pip install -r scraper/requirements.txt
 Create a `.env` file at the project root:
 
 ```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your-service-role-key
+DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/dbname?sslmode=require
 GROQ_API_KEY=gsk_...
 ```
 
@@ -213,10 +205,13 @@ Tests use [Playwright](https://playwright.dev) for end-to-end testing and screen
 
 ### Setup
 
-```bash
-cd web
-cp .env.test.example .env.test
-# Fill in TEST_EMAIL and TEST_PASSWORD (a user you created via /signup)
+Tests sign in through Clerk's testing helpers, reusing the keys in
+`web/.env.local`. Create a test user in the Clerk dashboard, then add its
+credentials to `web/.env.local`:
+
+```env
+E2E_CLERK_USER_IDENTIFIER=playwright@example.com
+E2E_CLERK_USER_PASSWORD=your-test-user-password
 ```
 
 ### Run
@@ -234,7 +229,7 @@ Playwright starts the Next.js dev server automatically. Screenshots are written 
 
 | Spec | What it covers |
 |---|---|
-| `01-auth.spec.ts` | Login and signup page rendering |
+| `01-auth.spec.ts` | Authenticated landing + redirect of unauthenticated users to sign-in |
 | `02-jobs.spec.ts` | Stat cards, source filter, score slider, search, rescore button |
 | `03-applications.spec.ts` | Pipeline status counts, notes editing, status transitions |
 | `04-resume.spec.ts` | Upload form, current resume display, .txt upload flow |
@@ -254,9 +249,10 @@ Add these secrets under **Settings → Secrets → Actions**:
 
 | Secret | Value |
 |---|---|
-| `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_SERVICE_KEY` | Your service role key |
+| `DATABASE_URL` | Your Neon connection string |
 | `GROQ_API_KEY` | Your Groq API key |
+| `JOB_KEYWORDS` | (optional) fallback search keywords when no user preferences exist |
+| `JOB_LOCATION` | (optional) fallback search location |
 | `APP_URL` | Your deployed Vercel URL |
 | `CRON_SECRET` | Same value as `CRON_SECRET` in Vercel env vars |
 
@@ -264,7 +260,7 @@ The workflow runs every day at 9am UTC and can be triggered manually from the Ac
 
 ## Usage
 
-1. **Sign up** at `/signup` and confirm your email
+1. **Sign up** at `/sign-up` (handled by Clerk)
 2. Go to **Resume** and upload your resume (`.pdf` or `.txt`)
 3. Go to **Settings** and enter your target job keywords and preferred locations
 4. On **Jobs**, click **Score visible** — the LLM evaluates each listing against your resume

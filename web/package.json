@@ -12,8 +12,9 @@
     "test:report": "playwright show-report"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.10.2",
-    "@supabase/supabase-js": "^2.105.1",
+    "@clerk/nextjs": "^6.20.0",
+    "@clerk/themes": "^2.2.0",
+    "@neondatabase/serverless": "^1.0.0",
     "groq-sdk": "^1.1.2",
     "next": "16.2.4",
     "nodemailer": "^8.0.7",
@@ -24,6 +25,7 @@
     "unpdf": "^1.6.2"
   },
   "devDependencies": {
+    "@clerk/testing": "^1.4.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

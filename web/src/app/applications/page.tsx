@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase-browser";
 
 type ApplicationRow = {
   id: string;
@@ -32,34 +31,33 @@ export default function ApplicationsPage() {
   const [loading, setLoading] = useState(true);
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
   const [savingNotes, setSavingNotes] = useState<Set<string>>(new Set());
-  const supabase = createClient();
 
   async function load() {
-    const { data } = await supabase
-      .from("applications")
-      .select("id, status, notes, applied_at, updated_at, jobs(title, company, location, url)")
-      .order("updated_at", { ascending: false });
-    setApplications((data as unknown as ApplicationRow[]) ?? []);
+    const res = await fetch("/api/applications");
+    const { applications: data } = res.ok ? await res.json() : { applications: [] };
+    setApplications((data as ApplicationRow[]) ?? []);
     setLoading(false);
   }
 
   useEffect(() => { load(); }, []);
 
   async function updateStatus(id: string, status: string) {
-    await supabase
-      .from("applications")
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await fetch("/api/applications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status }),
+    });
     load();
   }
 
   async function saveNotes(id: string) {
     setSavingNotes((s) => new Set(s).add(id));
     const notes = editingNotes[id] ?? "";
-    await supabase
-      .from("applications")
-      .update({ notes, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    await fetch("/api/applications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, notes }),
+    });
     setSavingNotes((s) => { const n = new Set(s); n.delete(id); return n; });
     setApplications((apps) =>
       apps.map((a) => (a.id === id ? { ...a, notes } : a))
