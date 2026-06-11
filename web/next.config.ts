@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Hide the dev-mode indicator badge so committed Playwright screenshots stay clean.
+  devIndicators: false,
 };
 
 export default nextConfig;

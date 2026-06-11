@@ -8,9 +8,13 @@ dotenv.config({ path: ".env.local" });
 export default defineConfig({
   testDir: "./tests/e2e",
   outputDir: "./test-results",
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  retries: 1,
+  // Each test signs in through Clerk (beforeEach), so allow headroom over the
+  // 30s default once the external auth handshake is added in.
+  timeout: 90_000,
   reporter: [
     ["html", { outputFolder: "playwright-report", open: "never" }],
     ["list"],
@@ -23,16 +27,8 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "setup",
-      testMatch: /auth\.setup\.ts/,
-    },
-    {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        storageState: "tests/.auth/user.json",
-      },
-      dependencies: ["setup"],
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
   webServer: {

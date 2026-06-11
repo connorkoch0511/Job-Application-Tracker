@@ -2,9 +2,11 @@
  * Jobs page — visual showcase + functional tests.
  */
 import { test, expect } from "@playwright/test";
+import { signIn } from "./auth-helpers";
 
 test.describe("Jobs page", () => {
   test.beforeEach(async ({ page }) => {
+    await signIn(page);
     await page.goto("/");
     await page.waitForLoadState("networkidle");
   });
@@ -46,7 +48,7 @@ test.describe("Jobs page", () => {
     const slider = page.locator('input[type="range"]');
     await expect(slider).toBeVisible({ timeout: 10_000 });
 
-    await slider.fill("70");
+    await slider.fill("60");
     await slider.dispatchEvent("input");
     await page.waitForTimeout(400);
 

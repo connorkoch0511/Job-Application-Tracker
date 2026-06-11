@@ -62,8 +62,8 @@ function KeywordPills({ label, keywords, color }: { label: string; keywords: str
     <div className="mt-2">
       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{label}</p>
       <div className="flex flex-wrap gap-1">
-        {items.map((kw) => (
-          <span key={kw} className={`text-xs px-2 py-0.5 rounded-full border ${styles}`}>{kw}</span>
+        {items.map((kw, i) => (
+          <span key={`${kw}-${i}`} className={`text-xs px-2 py-0.5 rounded-full border ${styles}`}>{kw}</span>
         ))}
       </div>
     </div>

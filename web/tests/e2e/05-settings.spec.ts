@@ -2,9 +2,11 @@
  * Settings / preferences page — visual showcase + functional tests.
  */
 import { test, expect } from "@playwright/test";
+import { signIn } from "./auth-helpers";
 
 test.describe("Settings page", () => {
   test.beforeEach(async ({ page }) => {
+    await signIn(page);
     await page.goto("/settings");
     await page.waitForLoadState("networkidle");
   });

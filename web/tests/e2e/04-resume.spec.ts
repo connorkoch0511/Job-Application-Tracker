@@ -2,9 +2,11 @@
  * Resume upload page — visual showcase + functional tests.
  */
 import { test, expect } from "@playwright/test";
+import { signIn } from "./auth-helpers";
 
 test.describe("Resume page", () => {
   test.beforeEach(async ({ page }) => {
+    await signIn(page);
     await page.goto("/resume");
     await page.waitForLoadState("networkidle");
   });
