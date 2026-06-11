@@ -1,26 +1,13 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* The app is dark-only. The background, text color, and font come from the
+   utility classes on <body> in layout.tsx (bg-gray-950 text-gray-100 + Geist).
+   We intentionally do NOT set `body { background }` here: an unlayered rule
+   like that beats Tailwind v4's layered utilities and would force the page to
+   the OS prefers-color-scheme value (white in light mode) — which is why
+   light-mode browsers and headless screenshots showed a white background. */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
